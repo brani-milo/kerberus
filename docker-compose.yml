@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: kerberus-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./data/qdrant_storage:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - kerberus-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: kerberus-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - kerberus-network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: kerberus-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-kerberus_dev}
+      - POSTGRES_USER=${POSTGRES_USER:-kerberus_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change_me_in_dev}
+    volumes:
+      - ./data/postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kerberus_user}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - kerberus-network
+
+networks:
+  kerberus-network:
+    driver: bridge
+
+volumes:
+  qdrant_storage:
+  redis_data:
+  postgres_data:

@@ -1,0 +1,123 @@
+# ============================================
+# KERBERUS - Git Ignore Configuration
+# ============================================
+# Internal documentation (not for public)
+README_INTERNAL.md
+# ============================================
+# Environment & Secrets
+# ============================================
+.env
+.env.local
+.env.*.local
+
+# ============================================
+# Python
+# ============================================
+venv/
+env/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# ============================================
+# Data & Databases (SENSITIVE)
+# ============================================
+# Encrypted dossier databases
+data/dossier/*.db
+data/dossier/.firm_master_key
+
+# Docker persistent data
+data/postgres_data/
+data/qdrant_storage/
+data/redis_data/
+
+# Raw scraped data (large files)
+data/raw/
+data/processed/
+
+# Scraped data (keep directory structure, ignore content)
+data/ticino/*.html
+data/parsed/*.json
+
+# State files (keep structure, ignore content)
+data/state/*.json
+!data/state/.gitkeep
+
+# ============================================
+# Logs (may contain sensitive queries)
+# ============================================
+logs/*.log
+logs/*.jsonl
+!logs/.gitkeep
+
+# Scraper logs
+logs/scrapers/*.log
+!logs/scrapers/.gitkeep
+
+# ============================================
+# Testing
+# ============================================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+coverage.xml
+*.cover
+
+# ============================================
+# IDE & Editor
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# ============================================
+# OS Files
+# ============================================
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+
+# ============================================
+# Documentation Build
+# ============================================
+docs/_build/
+site/
+
+# ============================================
+# Jupyter Notebooks
+# ============================================
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ============================================
+# Model Caches (large files)
+# ============================================
+.cache/
+models/
+*.bin
+*.safetensors
+
+# ============================================
+# Temporary Files
+# ============================================
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak

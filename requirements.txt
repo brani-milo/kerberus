@@ -1,0 +1,69 @@
+# KERBERUS - Swiss Legal Intelligence Platform
+# Python Dependencies
+
+# ============================================
+# UI Framework
+# ============================================
+chainlit>=1.0.0
+
+# ============================================
+# Configuration
+# ============================================
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# ============================================
+# Vector Database & Embeddings
+# ============================================
+qdrant-client>=1.7.0
+FlagEmbedding>=1.2.0
+transformers>=4.36.0
+torch>=2.1.0
+safetensors>=0.4.0
+sentencepiece>=0.1.99
+accelerate>=0.25.0
+
+# ============================================
+# Databases
+# ============================================
+redis>=5.0.0
+psycopg2-binary>=2.9.0
+sqlalchemy>=2.0.0
+alembic>=1.13.0
+#pysqlcipher3>=1.2.0
+
+# ============================================
+# Security & Privacy
+# ============================================
+presidio-analyzer>=2.2.0
+presidio-anonymizer>=2.2.0
+cryptography>=41.0.0
+bcrypt>=4.1.0
+pyotp>=2.9.0
+PyJWT>=2.8.0
+
+# ============================================
+# Web Scraping & Parsing
+# ============================================
+beautifulsoup4>=4.12.0
+requests>=2.31.0
+lxml>=4.9.0
+PyPDF2>=3.0.0
+python-docx>=1.1.0
+
+# ============================================
+# Testing
+# ============================================
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-mock>=3.12.0
+pytest-cov>=4.1.0
+
+# ============================================
+# Utilities
+# ============================================
+tenacity>=8.2.0
+tqdm>=4.66.0
+python-json-logger>=2.0.0
+tiktoken>=0.5.0
