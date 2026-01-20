@@ -1,0 +1,37 @@
+# ============================================
+# KERBERUS - Database Configuration
+# ============================================
+# Environment variables can be referenced with ${VAR:-default}
+# ============================================
+
+postgres:
+  host: ${POSTGRES_HOST:-localhost}
+  port: ${POSTGRES_PORT:-5432}
+  database: ${POSTGRES_DB:-kerberus_dev}
+  user: ${POSTGRES_USER:-kerberus_user}
+  password: ${POSTGRES_PASSWORD}
+  pool_size: 10
+  max_overflow: 20
+  pool_timeout: 30
+
+redis:
+  host: ${REDIS_HOST:-localhost}
+  port: ${REDIS_PORT:-6379}
+  db: ${REDIS_DB:-0}
+  password: ${REDIS_PASSWORD}
+  decode_responses: true
+
+qdrant:
+  host: ${QDRANT_HOST:-localhost}
+  port: ${QDRANT_PORT:-6333}
+  api_key: ${QDRANT_API_KEY}
+  timeout: 30
+  collections:
+    codex: codex
+    library: library
+
+sqlcipher:
+  storage_path: ${DOSSIER_STORAGE_PATH:-./data/dossier}
+  encryption_algorithm: ${SQLCIPHER_ENCRYPTION_ALGORITHM:-aes-256-gcm}
+  iterations: ${SQLCIPHER_ITERATIONS:-256000}
+  max_size_mb: ${MAX_DOSSIER_SIZE_MB:-1024}
