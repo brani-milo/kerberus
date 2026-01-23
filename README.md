@@ -28,7 +28,7 @@ I chose #3 because:
 
 **What makes this interesting:**
 - ✅ Processes **400,000+ judgments** across 4 jurisdictions (Federal, TI, BS, VD)
-- ✅ **Zero-knowledge encryption** - data never leaves Switzerland and it is always unencrypted
+- ✅ **Zero-knowledge encryption** - data stays in Switzerland and is always encrypted
 - ✅ **Production-grade architecture** - handles 50+ concurrent users with <5s P95 latency
 - ✅ **Validated by Swiss lawyers** - tested against commercial legal AI platforms
 - ✅ **Fully open source** - adapt for your jurisdiction or learn from the implementation
