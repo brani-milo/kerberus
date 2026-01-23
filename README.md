@@ -19,7 +19,7 @@ After being laid off in January 2026, I decided to build something meaningful: a
 - The developer community can benefit from a complete, working reference implementation
 
 **What makes this interesting:**
-- ✅ Discovers **50,000+ Ticino judgments** 
+- ✅ Discovers **400,000+ judgments** (there are more than 800k copyright-free decisions available, in this repo I am writing the scrapers for Federal, Ticino, Vaud and Baselstadt decisions, but it can be easily adapted to all remaining cantons)
 - ✅ **Zero-knowledge encryption** - data never leaves Switzerland unencrypted
 - ✅ **Production-grade architecture** - built to handle real workloads, not a demo
 - ✅ **Fully open source** - adapt for your jurisdiction or learn from the implementation
