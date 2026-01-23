@@ -8,6 +8,20 @@ A production-grade AI legal assistant for Swiss lawyers, built with zero-knowled
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
 ---
+<div align="center">
+  <img src="assets/images/kerberus-logo.png" alt="KERBERUS - Sovereign AI Guard" width="300"/>
+  
+  <h3>Open Source Legal Intelligence for Switzerland</h3>
+  
+  <p>
+    <a href="https://opensource.org/licenses/MIT">
+      <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/>
+    </a>
+    <a href="https://www.python.org/downloads/">
+      <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+"/>
+    </a>
+  </p>
+</div>
 
 ## 🎯 Why This Project?
 
