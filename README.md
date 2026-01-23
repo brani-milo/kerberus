@@ -1,396 +1,217 @@
-# KERBERUS - Swiss Legal Intelligence Platform
+# 🛡️ KERBERUS - Open Source Legal Intelligence for Switzerland
 
-**Sovereign, Secure, Swiss**
+> **Status:** 🚧 In Active Development | Expected Release: February 2026
 
-KERBERUS is a legal AI platform designed for Swiss lawyers and fiduciaries, featuring zero-knowledge encryption, dynamic context management, and trilingual support (DE/FR/IT).
+A production-grade AI legal assistant for Swiss lawyers, built with zero-knowledge encryption, multilingual support (DE/FR/IT), and full data sovereignty.
 
-## Architecture
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-### Three-Tier Data Storage Model
+---
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         KERBERUS DATA ARCHITECTURE                  │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐     │
-│  │   PostgreSQL    │  │    SQLCipher    │  │     Qdrant      │     │
-│  │  (Auth Layer)   │  │ (Dossier Layer) │  │ (Vector Layer)  │     │
-│  ├─────────────────┤  ├─────────────────┤  ├─────────────────┤     │
-│  │ • User accounts │  │ • user_{uuid}.db│  │ • codex         │     │
-│  │ • Sessions      │  │ • firm_{uuid}.db│  │ • library       │     │
-│  │ • Firm members  │  │                 │  │ • dossier_*     │     │
-│  │ • Token usage   │  │ AES-256-GCM     │  │                 │     │
-│  │                 │  │ Zero-Knowledge  │  │ 768-dim vectors │     │
-│  │ NOT ENCRYPTED   │  │ ENCRYPTED       │  │ Namespaced      │     │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘     │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
+## 🎯 Why This Project?
 
-1. **PostgreSQL** - User authentication and metadata
-   - User accounts, sessions, firm memberships
-   - NOT encrypted (contains no sensitive legal content)
-   - Tracks token usage and costs for monitoring
+After being laid off in January 2026, I decided to build something meaningful: a legal AI assistant that demonstrates end-to-end LLM application development at production scale.
 
-2. **SQLCipher** - Encrypted document storage
-   - Per-user databases: `user_{uuid}.db` (zero-knowledge encrypted)
-   - Per-firm databases: `firm_{uuid}.db` (master key encrypted)
-   - AES-256 encryption with password-derived keys
-   - Zero-knowledge: we cannot decrypt user data
+**Why open source instead of commercial?**
+- Swiss legal tech is dominated by well-funded startups and established players
+- Unemployment regulations complicate starting a company
+- The developer community can benefit from a complete, working reference implementation
 
-3. **Qdrant** - Vector embeddings for semantic search
-   - Collection per user: `dossier_user_{uuid}`
-   - Collection per firm: `dossier_firm_{uuid}`
-   - Vectors alone reveal nothing (meaningless without content)
+**What makes this interesting:**
+- ✅ Discovers **30,000+ Ticino judgments** not available in existing commercial systems
+- ✅ **Zero-knowledge encryption** - data never leaves Switzerland unencrypted
+- ✅ **Production-grade architecture** - built to handle real workloads, not a demo
+- ✅ **Fully open source** - adapt for your jurisdiction or learn from the implementation
 
-### Dynamic Context Swapping
+---
 
-KERBERUS uses "The Sliding Window of Truth" pattern to prevent token bloat:
+## 🏗️ Architecture
 
-**The Problem:**
-Traditional RAG systems accumulate context, causing token costs to explode:
-```
-Turn 1:  5,000 tokens
-Turn 5:  25,000 tokens
-Turn 10: 50,000 tokens  <- 10x cost!
-```
+### **Core Components**
 
-**The Solution:**
-We split AI memory into two buckets:
+**Infrastructure:**
+- Docker-orchestrated services (Qdrant, PostgreSQL, Redis)
+- Apple Silicon optimized (MPS acceleration)
+- Production deployment ready (Infomaniak)
 
-```
-┌───────────────────────────────────────────────────────────────────┐
-│                    CONTEXT MANAGEMENT                             │
-├───────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  ┌─────────────────────────┐  ┌─────────────────────────────────┐│
-│  │  BUCKET A: Chat History │  │  BUCKET B: Legal Context        ││
-│  │  (Preserved)            │  │  (Replaced Each Turn)           ││
-│  ├─────────────────────────┤  ├─────────────────────────────────┤│
-│  │ • Last 5 turns          │  │ • Fresh law articles            ││
-│  │ • ~500 tokens           │  │ • Relevant case law             ││
-│  │ • Conversation flow     │  │ • User's past work (style)      ││
-│  │                         │  │ • ~4,000 tokens                 ││
-│  └─────────────────────────┘  └─────────────────────────────────┘│
-│                                                                   │
-│  Result: ~5,000 tokens per turn (FLAT, regardless of length)     │
-│                                                                   │
-└───────────────────────────────────────────────────────────────────┘
+**Advanced RAG Pipeline:**
+- **BGE-M3 embeddings** - Multilingual semantic search (768-dim, 100+ languages)
+- **BGE-Reranker-v2-M3** - Cross-encoder precision ranking
+- **Recency weighting** - Recent precedents scored higher
+- **Authority weighting** - Supreme Court (BGE/ATF) cases prioritized
+- **MMR algorithm** - Eliminates redundant results while maintaining relevance
+- **Triad search** - Parallel search across laws, case law, and user documents
+
+**Cost Optimization:**
+
+Standard RAG systems accumulate context, causing exponential token costs. KERBERUS implements **dynamic context swapping** (the "Sliding Window of Truth" pattern):
+```python
+# Keep: Chat history (lightweight)
+chat_history = ["Can I fire employee?", "Yes, if immediate cause..."]
+
+# Swap: Legal context (replaced each turn)
+turn_1: [Art. 337 OR, BGE 140 III 348]
+turn_2: [Art. 336 OR, TI_2023_045]  # Previous context discarded
 ```
 
-- **Bucket A (Chat History):** Keep conversation flow (small, ~500 tokens)
-- **Bucket B (Legal Context):** Replace on every turn (large, ~4,000 tokens)
+This prevents token bloat while maintaining conversation quality - the same pattern used by Anthropic, OpenAI, and Perplexity.
 
-**Result:**
-- Natural conversation (AI remembers what you discussed)
-- Flat token costs (~5,000 tokens per turn regardless of conversation length)
-- Fresh, relevant context on every query (no stale documents)
+**Data Ingestion:**
+- Incremental scraping with state management
+- Smart year-range detection (avoids re-downloading)
+- Rate limiting and retry logic
+- **Ticino scraper:** ~30,000 judgments (1990-present)
+- **Coming:** BGE/ATF (Federal Supreme Court), Fedlex (federal laws)
 
-### Data Flow
+---
 
-```
-User uploads document
-         │
-         ▼
-┌─────────────────────┐
-│  PII Scrubbing      │  Swiss-specific patterns
-│  (Presidio)         │  (AHV, IBAN, CHE-UID, plates)
-└─────────────────────┘
-         │
-         ▼
-┌─────────────────────┐
-│  SQLCipher          │  Encrypted with user's
-│  (Zero-Knowledge)   │  password-derived key
-└─────────────────────┘
-         │
-         ▼
-┌─────────────────────┐
-│  BGE-M3 Embedding   │  768-dimensional vector
-│  (Local MPS)        │  Multilingual DE/FR/IT
-└─────────────────────┘
-         │
-         ▼
-┌─────────────────────┐
-│  Qdrant Vector DB   │  Fast semantic search
-│  (Namespaced)       │  User isolation
-└─────────────────────┘
+## 🔍 Technical Highlights
+
+### **Metadata-Driven Ranking**
+
+Every judgment is enriched with structured metadata:
+```python
+{
+    "case_id": "BGE_140_III_348",
+    "year": 2014,
+    "court": "bundesgericht",
+    "source": "bge_archive",
+    "is_cornerstone": True,
+    "authority": "SUPREME_PUBLISHED",
+    "law_type": "civil",
+    "domain": "employment",
+    "outcome": "REJECTED",
+    "cites_cases": ["BGE_135_III_232", ...],
+    "cites_articles": ["Art. 337 OR", ...]
+}
 ```
 
-### Search Flow (Triad Search with Context Swapping)
-
-```
-User query: "Can I terminate for cause?"
-                    │
-    ┌───────────────┼───────────────┐
-    ▼               ▼               ▼
-┌────────┐    ┌──────────┐    ┌──────────┐
-│ Lane 1 │    │  Lane 2  │    │  Lane 3  │
-│ Codex  │    │ Library  │    │ Dossier  │
-│(Laws)  │    │(Cases)   │    │(User)    │
-└────────┘    └──────────┘    └──────────┘
-    │               │               │
-    └───────────────┼───────────────┘
-                    ▼
-         ┌─────────────────────┐
-         │  Reranker BGE-v2    │
-         │  Score & merge      │
-         └─────────────────────┘
-                    │
-                    ▼
-         ┌─────────────────────┐
-         │  CONTEXT SWAP       │
-         │  Discard old Bucket B│
-         │  Insert fresh docs  │
-         └─────────────────────┘
-                    │
-                    ▼
-         ┌─────────────────────┐
-         │  Qwen3-VL API       │
-         │  (Infomaniak Swiss) │
-         └─────────────────────┘
-                    │
-                    ▼
-         Response: Legally compliant,
-         case-aligned, style-matched
+### **Intelligent Reranking**
+```python
+final_score = base_rerank_score 
+              + (0.10 × recency_score)
+              + (0.10 × authority_boost)
 ```
 
-## Quick Start
+This ensures recent, authoritative precedents surface first while maintaining semantic relevance.
 
-### Prerequisites
+---
 
-- macOS with Apple Silicon (M1/M2/M3)
-- Docker Desktop for Mac
-- Python 3.11+
-- 16GB RAM recommended
+## 🚀 Current Status & Roadmap
 
-### Installation
+### **✅ Completed**
+- Production infrastructure (Docker, Qdrant, PostgreSQL, Redis)
+- Multilingual embeddings and reranking (BGE-M3, BGE-Reranker)
+- Dynamic context swapping implementation
+- Triad search architecture
+- Ticino court scraper with incremental updates
 
+### **🚧 In Progress**
+- BGE/ATF scraper (Federal Supreme Court published decisions)
+- Fedlex scraper (Swiss federal laws - OR, ZGB, StGB)
+- HTML parser (metadata extraction, citation detection)
+- Qdrant collection population
+
+### **🔜 Next**
+- SQLCipher integration (zero-knowledge document storage)
+- PII detection and scrubbing
+- Qwen3-VL API integration
+- Authentication system (email + MFA)
+- Chainlit conversational interface
+- Production deployment on Infomaniak
+
+### **🔮 Future**
+- Citation graph analysis (identify landmark cases)
+- Multi-canton expansion
+- React frontend
+- Adaptation guides for other countries
+
+---
+
+## 🌍 International Applicability
+
+While built for Switzerland, KERBERUS can be adapted to any civil law jurisdiction with public legal databases:
+
+- 🇩🇪 Germany (bundesgerichtshof.de)
+- 🇸🇪 Sweden (domstol.se)
+- 🇦🇹 Austria (ris.bka.gv.at)
+- 🇧🇪 Belgium (juridat.be)
+- 🇳🇱 Netherlands (rechtspraak.nl)
+
+Requires replacing scrapers and adapting metadata schema for local court hierarchies.
+
+---
+
+## 📚 Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| **Embeddings** | BGE-M3 (BAAI) |
+| **Reranking** | BGE-Reranker-v2-M3 |
+| **Vector DB** | Qdrant |
+| **SQL DB** | PostgreSQL 15 |
+| **Encrypted Storage** | SQLCipher |
+| **LLM** | Qwen3-VL (235B) |
+| **Deployment** | Docker + Infomaniak |
+| **Frontend** | Chainlit → React |
+
+---
+
+## 🔐 Security & Privacy
+
+- **Zero-knowledge encryption** - AES-256, keys never leave user session
+- **Swiss data sovereignty** - All infrastructure hosted in Switzerland
+- **GDPR compliant** - By design, no third-party tracking
+- **API key security** - Stored in Infomaniak KMS / HashiCorp Vault
+
+---
+
+## 🤝 Contributing
+
+Contributions welcome! Whether you want to:
+- Adapt for your country
+- Report bugs
+- Suggest features
+- Improve documentation
 ```bash
-# 1. Clone repository
-git clone <repository-url>
+git clone https://github.com/brani-milo/kerberus
 cd kerberus
-
-# 2. Setup environment
 make setup
-
-# 3. Edit .env file (set your passwords, keys, etc.)
-nano .env
-
-# 4. Start services
-make start
-
-# 5. Initialize databases
-make db-init
-
-# 6. Activate Python environment
-source venv/bin/activate
-
-# 7. Ready to develop!
+make scrape-ticino-test  # Test with 1993 only
 ```
 
-### Verify Installation
+---
 
-```bash
-# Check all services are running
-docker ps
+## 📬 Contact
 
-# Should show: kerberus-qdrant, kerberus-redis, kerberus-postgres
+**Author:** Branisa Milosavljevic  
+**LinkedIn:** https://www.linkedin.com/in/branimilo/
 
-# Access Qdrant dashboard
-open http://localhost:6333/dashboard
+**Actively seeking roles in:**
+- Data Science
+- LLM Engineering
+- ML Engineering  
+- AI Product Development
 
-# Test database connections
-make test-quick
-```
+---
 
-## Development Workflow
+## 📄 License
 
-### Running Tests
+MIT License - See [LICENSE](LICENSE)
+TLDR, you can download it, modify it, sell it, or anything that comes to your mind
 
-```bash
-# All tests with coverage
-make test
+---
 
-# Quick tests (no coverage)
-make test-quick
+## 🙏 Acknowledgments
 
-# Test SQLCipher encryption
-make test-sqlcipher
-```
+Built during my job search (January 2026 - present). This project represents:
+- Production-grade LLM application development
+- LLMOps certification applied to real-world problems
+- 7+ Years experience in Data Science
 
-### Viewing Logs
+---
 
-```bash
-# All services
-make logs
+**⭐ Star this repo if you find it useful!**
 
-# Specific service
-make logs-qdrant
-make logs-postgres
-make logs-redis
-```
-
-### Database Management
-
-```bash
-# Open PostgreSQL shell
-make db-shell
-
-# Open Redis CLI
-make redis-cli
-
-# Run migrations
-make db-migrate
-```
-
-## Project Structure
-
-```
-kerberus/
-├── src/
-│   ├── database/           # Database connection managers
-│   │   ├── auth_db.py         # PostgreSQL (auth/metadata)
-│   │   ├── dossier_db.py      # SQLCipher (encrypted docs)
-│   │   └── vector_db.py       # Qdrant (vectors)
-│   ├── embedder/           # BGE-M3 embedding generation
-│   ├── reranker/           # BGE-Reranker-v2-M3
-│   ├── search/             # Triad search implementation
-│   ├── scrapers/           # Web scrapers (Entscheidsuche, Fedlex)
-│   ├── parsers/            # Legal document parsers
-│   ├── security/           # PII scrubbing, encryption
-│   ├── auth/               # Authentication, MFA, rate limiting
-│   ├── ai/                 # Qwen3-VL integration, context management
-│   │   ├── prompt_builder.py      # Hybrid prompt system
-│   │   └── conversation_manager.py # Dynamic context swapping
-│   ├── validation/         # Citation validator, JCD
-│   ├── ui/                 # Chainlit interface
-│   └── utils/              # Shared utilities
-├── tests/                  # Test suite
-├── data/                   # Data storage (gitignored)
-├── config/                 # Configuration files
-├── logs/                   # Application logs (gitignored)
-├── scripts/                # Utility scripts
-└── assets/                 # Static assets
-```
-
-## Security Features
-
-- **Zero-Knowledge Encryption**: We cannot decrypt user dossiers
-- **Swiss PII Scrubbing**: Removes Swiss-specific PII (postal codes, IBANs, CHE-UIDs, license plates)
-- **MFA Required**: TOTP-based two-factor authentication
-- **Rate Limiting**: 300 queries/day, 50/hour (anti-abuse)
-- **Token Cost Tracking**: Monitor and alert on excessive usage
-- **Audit Logging**: All access tracked (compliance)
-
-## Cost Monitoring
-
-KERBERUS tracks token usage in real-time:
-
-```sql
--- Token usage is logged to PostgreSQL
-SELECT
-    DATE(timestamp) as date,
-    COUNT(*) as queries,
-    SUM(total_tokens) as tokens,
-    SUM(total_cost_chf) as cost_chf
-FROM token_usage
-WHERE user_id = 'user-uuid'
-GROUP BY DATE(timestamp)
-ORDER BY date DESC;
-```
-
-**Cost Alerts:**
-- User exceeds CHF 50/month -> Email notification
-- System-wide costs spike -> Admin dashboard alert
-- Context swapping ensures predictable costs (~CHF 0.0057/query)
-
-## Data Ingestion
-
-### Ticino Court Scraper
-
-Scrapes cantonal court decisions from entscheidsuche.ch.
-
-**Usage:**
-```bash
-# Incremental update (daily)
-python scripts/scrape_ticino.py
-
-# Full re-scrape (first run or reset)
-python scripts/scrape_ticino.py --full
-
-# Specific year (for testing)
-python scripts/scrape_ticino.py --year 1993
-
-# Verbose logging
-python scripts/scrape_ticino.py --verbose
-```
-
-**Scheduling (cron):**
-```bash
-# Daily at 2am (production on Infomaniak)
-0 2 * * * cd /path/to/kerberus && python scripts/scrape_ticino.py >> logs/scrapers/cron.log 2>&1
-```
-
-**State tracking:**
-- State saved to: `data/state/ticino_scraper.json`
-- Tracks last run date and file counts
-- Enables efficient incremental updates
-
-## Swiss Legal Coverage
-
-- **Federal Law**: OR, ZGB, StGB (DE/FR/IT)
-- **Cantonal Law**: Ticino (with expansion planned)
-- **Case Law**: Federal Supreme Court + Cantonal courts
-- **Multilingual**: Native DE/FR/IT support with Swiss-German dialect understanding
-
-## Troubleshooting
-
-### Docker Services Won't Start
-
-```bash
-# Check Docker Desktop is running
-docker ps
-
-# If services are unhealthy, check logs
-make logs
-
-# Reset everything (destroys data)
-make clean && make setup && make start
-```
-
-### Python Import Errors
-
-```bash
-# Ensure virtual environment is activated
-source venv/bin/activate
-
-# Reinstall dependencies
-pip install -r requirements.txt
-```
-
-### SQLCipher Errors
-
-```bash
-# Test encryption separately
-make test-sqlcipher
-
-# Check pysqlcipher3 is installed
-pip list | grep sqlcipher
-```
-
-### High Token Costs
-
-```bash
-# Check token usage logs
-cat logs/token_usage.jsonl | tail -100
-
-# Verify context swapping is enabled
-grep ENABLE_CONTEXT_SWAPPING .env
-
-# Should show: ENABLE_CONTEXT_SWAPPING=true
-```
-
-## License
-
-Proprietary - All Rights Reserved
+**Expected release: February 2026**
