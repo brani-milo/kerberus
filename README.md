@@ -9,7 +9,7 @@ A production-grade AI legal assistant for Swiss lawyers, built with zero-knowled
 
 ---
 <div align="center">
-  <img src="assets/images/kerberus-logo.png" alt="KERBERUS - Sovereign AI Guard" width="300"/>
+  <img src="assets/kerberus-logo.png" alt="KERBERUS - Sovereign AI Guard" width="300"/>
   
   <h3>Open Source Legal Intelligence for Switzerland</h3>
   
