@@ -222,9 +222,9 @@ I'm **Branisa Milosavljevic**, a Data Scientist with **7+ years** driving busine
 - Swiss market expertise (FINMA compliance, data sovereignty)
 
 **Looking for:**
-- Senior Data Scientist roles (Switzerland or Full Remote)
-- ML/AI Engineer positions in regulated industries
-- Technical leadership opportunities in LLMOps/GenAI
+- (Senior) Data Scientist roles (Switzerland or Full Remote)
+- AI Engineer positions (product-focused, end-to-end ownership)
+- AI Transformation Lead or Consultant (organizational change, AI adoption strategy)
 
 ---
 
