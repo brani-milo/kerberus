@@ -242,7 +242,7 @@ Built during my job search (January 2026 - present). This project represents:
 
 **This is a portfolio/demonstration project built to showcase:**
 - End-to-end LLM application development skills
-- Application of LLMOps certification and 10+ years of software engineering experience
+- Application of LLMOps certification
 - Production-grade system design and architecture capabilities
 
 **Important clarifications:**
