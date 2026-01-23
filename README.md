@@ -19,7 +19,7 @@ After being laid off in January 2026, I decided to build something meaningful: a
 - The developer community can benefit from a complete, working reference implementation
 
 **What makes this interesting:**
-- ✅ Discovers **30,000+ Ticino judgments** not available in existing commercial systems
+- ✅ Discovers **50,000+ Ticino judgments** 
 - ✅ **Zero-knowledge encryption** - data never leaves Switzerland unencrypted
 - ✅ **Production-grade architecture** - built to handle real workloads, not a demo
 - ✅ **Fully open source** - adapt for your jurisdiction or learn from the implementation
@@ -209,6 +209,20 @@ Built during my job search (January 2026 - present). This project represents:
 - Production-grade LLM application development
 - LLMOps certification applied to real-world problems
 - 7+ Years experience in Data Science
+## ⚠️ Project Status & Disclaimer
+
+**This is a portfolio/demonstration project built to showcase:**
+- End-to-end LLM application development skills
+- Application of LLMOps certification and 10+ years of software engineering experience
+- Production-grade system design and architecture capabilities
+
+**Important clarifications:**
+- ✅ This project has **never been commercialized** and has generated **zero revenue**
+- ✅ Built solely as a **demonstration of technical capabilities** for job applications
+- ✅ All code is provided **as-is for educational and reference purposes**
+
+**Legal Disclaimer:**
+This software is provided under the MIT License (see LICENSE file). It is not intended as legal advice and should not be used for actual legal practice without proper review, testing, and compliance verification. The author assumes no liability for any use of this software. Always consult qualified legal professionals for legal matters.
 
 ---
 
