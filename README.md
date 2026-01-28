@@ -129,14 +129,14 @@ This ensures recent, authoritative precedents surface first while maintaining se
 - Dynamic context swapping implementation
 - Triad search architecture
 - Ticino court scraper with incremental updates
+- BGE/ATF scraper (Federal Supreme Court published decisions)
+- Fedlex scraper (Swiss federal laws - OR, ZGB, StGB)
 
 ## 🎥 Demo
 
 **Coming Soon:** Video walkthrough and hosted demo
 
 ### **🚧 In Progress**
-- BGE/ATF scraper (Federal Supreme Court published decisions)
-- Fedlex scraper (Swiss federal laws - OR, ZGB, StGB)
 - HTML parser (metadata extraction, citation detection)
 - Qdrant collection population
 
