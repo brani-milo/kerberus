@@ -2,7 +2,7 @@
 
 > **Status:** 🚧 In Active Development | Expected Release: February 2026
 
-A production-grade AI legal assistant for Swiss lawyers, built with zero-knowledge encryption, multilingual support (DE/FR/IT), and full data sovereignty.
+A production-grade AI legal assistant for Swiss lawyers, built with zero-knowledge encryption, multilingual support(DE/FR/IT) and full data sovereignty.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
