@@ -1,7 +1,7 @@
 """
 Federal court scraper using job logs from entscheidsuche.ch.
 
-Based on user's working implementation that reads job logs and extracts file references.
+Based on existing implementation that reads job logs and extracts file references.
 """
 
 import logging
@@ -21,13 +21,13 @@ class FederalCourtScraper(BaseScraper):
     """
     Scraper for Swiss Federal Courts using job log scanning approach.
 
-    This implementation preserves the user's exact methodology:
+    This implementation preserves the proven methodology:
     1. Scan job logs from Jobs/{court}/ directory
     2. Extract file references using regex patterns
     3. Download files in parallel using ThreadPoolExecutor
     """
 
-    # Court configuration - EXACT from user's script
+    # Court configuration
     COURT_CONFIG = {
         "CH_BGE":    {"folder": "CH_BGE",    "prefix": "CH_BGE",   "mode": "strict"},
         "CH_BGer":   {"folder": "CH_BGer",   "prefix": "CH_BGer",  "mode": "strict"},
@@ -37,7 +37,7 @@ class FederalCourtScraper(BaseScraper):
         "CH_EDOEB":  {"folder": "CH_EDOEB",  "prefix": "CH_ED",    "mode": "loose"}
     }
 
-    # URLs - EXACT from user's script
+    # URLs
     DOMAIN = "https://entscheidsuche.ch"
     DOCS_BASE = "https://entscheidsuche.ch/docs/"
 
@@ -55,7 +55,7 @@ class FederalCourtScraper(BaseScraper):
         Initialize Federal Court scraper.
 
         Args:
-            base_dir: Base directory for federal data (user's: data/federal_archive_full)
+            base_dir: Base directory for federal data (default: data/federal_archive_full)
             state_file: Path to state JSON file
             courts: List of court IDs to scrape (default: all)
             target_years: List of years to filter (default: all years)

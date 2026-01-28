@@ -131,14 +131,15 @@ This ensures recent, authoritative precedents surface first while maintaining se
 - Ticino court scraper with incremental updates
 - BGE/ATF scraper (Federal Supreme Court published decisions)
 - Fedlex scraper (Swiss federal laws - OR, ZGB, StGB)
+- **Parsing Engine** (HTML/PDF processing, metadata extraction, section splitting)
 
 ## 🎥 Demo
 
 **Coming Soon:** Video walkthrough and hosted demo
 
 ### **🚧 In Progress**
-- HTML parser (metadata extraction, citation detection)
-- Qdrant collection population
+- Qdrant collection population (Vector ingestion)
+- Zero-knowledge encryption layer
 
 ### **🔜 Next**
 - SQLCipher integration (zero-knowledge document storage)
