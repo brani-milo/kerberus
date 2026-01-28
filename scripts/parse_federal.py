@@ -9,25 +9,26 @@ from tqdm import tqdm
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from src.parsers.ticino_parser import TicinoParser
+from src.parsers.federal_parser import FederalParser
 
 # Setup Logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("logs/parse_ticino.log"),
+        logging.FileHandler("logs/parse_federal.log"),
         logging.StreamHandler(sys.stdout)
     ]
 )
-logger = logging.getLogger("TicinoRunner")
+logger = logging.getLogger("FederalRunner")
 
 def process_file(file_info):
     input_path, output_dir = file_info
-    parser = TicinoParser()
+    parser = FederalParser()
     try:
         data = parser.parse(input_path)
         
+        # Create output filename from input filename but json
         output_file = output_dir / f"{input_path.stem}.json"
         
         parser.save_json(data, output_file)
@@ -38,8 +39,8 @@ def process_file(file_info):
 
 def main():
     BASE_DIR = Path(__file__).parent.parent
-    INPUT_DIR = BASE_DIR / "data" / "ticino"
-    OUTPUT_DIR = BASE_DIR / "data" / "parsed" / "ticino"
+    INPUT_DIR = BASE_DIR / "data" / "federal_archive_full"
+    OUTPUT_DIR = BASE_DIR / "data" / "parsed" / "federal"
 
     if not INPUT_DIR.exists():
         logger.error(f"Input directory does not exist: {INPUT_DIR}")
@@ -47,11 +48,15 @@ def main():
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    files = list(INPUT_DIR.rglob("*.html"))
+    # Collect all HTML and PDF files
+    files = list(INPUT_DIR.rglob("*.html")) + list(INPUT_DIR.rglob("*.pdf"))
     logger.info(f"Found {len(files)} files to parse.")
 
+    # Prepare arguments for multiprocessing
     tasks = [(f, OUTPUT_DIR) for f in files]
 
+    # Run processing
+    # Using 75% of CPUs to avoid freezing system
     num_processes = max(1, int(cpu_count() * 0.75))
     
     logger.info(f"Starting parsing with {num_processes} processes...")

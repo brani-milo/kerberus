@@ -47,7 +47,7 @@ data/processed/
 data/ticino/*.html
 data/federal_archive_full/*/*.html
 data/federal_archive_full/*/*.pdf
-data/parsed/*.json
+data/parsed/
 
 # State files (keep structure, ignore content)
 data/state/*.json

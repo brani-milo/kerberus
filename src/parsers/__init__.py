@@ -1,8 +1,4 @@
-"""
-Legal document parsers for KERBERUS.
-
-This package provides parsers for:
-- Court judgments (extract facts, law, outcome)
-- Legal codes (extract articles, paragraphs)
-- User documents (PDF, DOCX extraction)
-"""
+from .metadata_extractor import MetadataExtractor
+from .base_parser import BaseParser
+from .federal_parser import FederalParser
+from .ticino_parser import TicinoParser
