@@ -45,6 +45,8 @@ data/processed/
 
 # Scraped data (keep directory structure, ignore content)
 data/ticino/*.html
+data/federal_archive_full/*/*.html
+data/federal_archive_full/*/*.pdf
 data/parsed/*.json
 
 # State files (keep structure, ignore content)
@@ -121,3 +123,6 @@ temp/
 *.tmp
 *.temp
 *.bak
+.Rhistory
+commit_script.sh
+tracked_files.txt
