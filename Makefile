@@ -4,7 +4,7 @@
 # Quick start: make setup && make start
 # ============================================
 
-.PHONY: setup start stop restart logs test clean init-dossier scrape-ticino scrape-ticino-full scrape-ticino-test help
+.PHONY: setup start stop restart logs test clean init-dossier scrape-ticino scrape-ticino-full scrape-ticino-test scrape-federal scrape-federal-test help
 
 # ============================================
 # SETUP & INSTALLATION
@@ -114,6 +114,14 @@ scrape-ticino-full: ## Scrape Ticino court decisions (full re-scrape)
 scrape-ticino-test: ## Test Ticino scraper (1993 only)
 	@echo "🔍 Testing Ticino scraper (1993 only)..."
 	. venv/bin/activate && python scripts/scrape_ticino.py --year 1993 --verbose
+
+scrape-federal: ## Scrape Federal court decisions (all courts)
+	@echo "🔍 Scraping Federal court decisions..."
+	. venv/bin/activate && python scripts/scrape_federal.py
+
+scrape-federal-test: ## Test Federal scraper (10 files per court)
+	@echo "🔍 Testing Federal scraper (10 files per court)..."
+	. venv/bin/activate && python scripts/scrape_federal.py --test --verbose
 
 # ============================================
 # CLEANUP
