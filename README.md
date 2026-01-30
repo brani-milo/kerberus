@@ -27,14 +27,16 @@ A production-grade AI legal assistant for Swiss lawyers, built with zero-knowled
 
 After my previous company closed in January 2026, I invested the transition period in building something meaningful: a production-grade legal AI assistant demonstrating end-to-end LLM application development.
 
-**Why open source instead of commercial?**
+**Project Origin: Applied LLMOps**
 
-I evaluated three paths after the company closure:
-1. **Commercial startup** - Crowded market (Swisslex, LexFind, etc.) with VC-funded competitors
-2. **Join existing legal tech** - Interesting, but wanted to demonstrate end-to-end capabilities first
-3. **Open source showcase** - Maximizes learning, helps the community, and demonstrates production skills
+This project was built to rigorously apply the advanced concepts from the **LLMOps Specialization (Duke University)** to a real-world, high-stakes domain.
 
-I chose #3 because:
+Instead of a theoretical exercise, KERBERUS focuses on:
+1. **Production-Grade RAG**: Implementing hybrid search, rescording, and dynamic context management.
+2. **Sovereign AI Infrastructure**: Hosted on **Infomaniak** (Switzerland) to strictly avoid US CLOUD Act jurisdiction. Unlike US hyperscalers (AWS/Azure), this architecture ensures 100% compliance with Swiss Data Protection laws (nFADP) and GDPR by keeping compute and data physically within Switzerland.
+3. **End-to-End MLOps**: Automated ingestion pipelines, monitoring, and reproducible deployment.
+
+I chose to open-source this reference implementation because:
 - ✅ Developers building compliance AI can learn from a complete reference implementation
 - ✅ Showcases capabilities beyond typical take-home assignments or coursework
 - ✅ Adaptable to any jurisdiction (Germany, Sweden, Austria, etc.)
