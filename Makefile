@@ -4,7 +4,7 @@
 # Quick start: make setup && make start
 # ============================================
 
-.PHONY: setup start stop restart logs test clean init-dossier scrape-ticino scrape-ticino-full scrape-ticino-test scrape-federal scrape-federal-test help
+.PHONY: setup start stop restart logs test clean init-dossier scrape-ticino scrape-ticino-full scrape-ticino-test scrape-federal scrape-federal-test scrape-fedlex scrape-fedlex-test help
 
 # ============================================
 # SETUP & INSTALLATION
@@ -122,6 +122,26 @@ scrape-federal: ## Scrape Federal court decisions (all courts)
 scrape-federal-test: ## Test Federal scraper (10 files per court)
 	@echo "🔍 Testing Federal scraper (10 files per court)..."
 	. venv/bin/activate && python scripts/scrape_federal.py --test --verbose
+
+scrape-fedlex: ## Scrape Fedlex (all Swiss federal laws)
+	@echo "🔍 Scraping Fedlex (all laws)..."
+	. venv/bin/activate && python scripts/scrape_fedlex.py
+
+scrape-fedlex-test: ## Test Fedlex scraper (5 laws only)
+	@echo "🔍 Testing Fedlex scraper (5 laws only)..."
+	. venv/bin/activate && python scripts/scrape_fedlex.py --test --verbose
+
+# ============================================
+# DATA PARSING
+# ============================================
+
+parse-federal: ## Parse Federal decisions (PDF/HTML -> JSON)
+	@echo "🧠 Parsing Federal decisions..."
+	. venv/bin/activate && python scripts/parse_federal.py
+
+parse-ticino: ## Parse Ticino decisions (HTML -> JSON)
+	@echo "🧠 Parsing Ticino decisions..."
+	. venv/bin/activate && python scripts/parse_ticino.py
 
 # ============================================
 # CLEANUP
