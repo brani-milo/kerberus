@@ -130,8 +130,33 @@ This ensures recent, authoritative precedents surface first while maintaining se
 - Triad search architecture
 - Ticino court scraper with incremental updates
 - BGE/ATF scraper (Federal Supreme Court published decisions)
-- Fedlex scraper (Swiss federal laws - OR, ZGB, StGB)
-- **Parsing Engine** (HTML/PDF processing, metadata extraction, section splitting)
+- **Fedlex scraper** (Swiss federal laws - OR, ZGB, StGB) with auto-repeal handling
+- **Parsing Engine** (PDF/HTML -> JSON)
+  - Metadata extraction (Judges, Dates, Outcomes)
+  - Legal citation linking (e.g. `Art. 337 OR` -> `SR 220`)
+  - Intelligent section splitting (Facts vs. Reasoning)
+
+## 🛠️ Usage
+
+### **Data Ingestion (Scraping)**
+```bash
+# Federal Laws (Fedlex) - Syncs latest versions & deletes repealed ones
+make scrape-fedlex
+
+# Ticino Court Decisions
+make scrape-ticino        # Incremental update
+make scrape-ticino-full   # Re-download everything from 1990
+
+# Federal Court Decisions
+make scrape-federal
+```
+
+### **Data Processing (Parsing)**
+Transform raw PDFs/HTMLs into structured JSON with metadata:
+```bash
+make parse-federal    # Parse BGE, BGer, BVGE
+make parse-ticino     # Parse Ticino decisions
+```
 
 ## 🎥 Demo
 

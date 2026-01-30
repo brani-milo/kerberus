@@ -1,9 +1,9 @@
-
 import logging
+import re
 from pathlib import Path
 from typing import Dict, Any, Union
 from bs4 import BeautifulSoup
-import re
+import unicodedata
 
 from src.parsers.base_parser import BaseParser
 from src.parsers.metadata_extractor import MetadataExtractor
@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 
 class TicinoParser(BaseParser):
     """
-    Parses Ticino specific court decisions (mostly Italian HTML).
+    Parses Cantonal court decisions from Ticino (HTML).
+    Handles variance between old (1993) and modern (2017) HTML structures.
     """
 
     def __init__(self):
@@ -20,97 +21,164 @@ class TicinoParser(BaseParser):
 
     def parse(self, file_path: Union[str, Path]) -> Dict[str, Any]:
         file_path = Path(file_path)
-        logger.info(f"Parsing Ticino file: {file_path}")
         
-        # Ticino files are typically HTML
-        if file_path.suffix.lower() != '.html':
-             logger.warning(f"Unexpected file type for Ticino parser: {file_path.suffix}")
+        # 1. Read & Clean Text
+        if file_path.suffix.lower() == '.html':
+            text = self._parse_and_clean_html(file_path)
+        else:
+            logger.warning(f"TicinoParser received non-html: {file_path}")
+            return self._get_empty_schema()
 
-        text = self._parse_html(file_path)
-        
-        # Extract Metadata
+        # 2. Extract Metadata (Uses the robust Whitelist from before)
         metadata = self.extractor.extract_metadata(text)
         
-        # Split Sections (Italian specific)
-        sections = self._split_sections_ticino(text)
+        # 3. Split Sections (The "Smart" Splitter)
+        sections = self._split_sections(text)
 
+        # 4. Construct JSON
         result = self._get_empty_schema()
+        
+        # Helper to clean newlines but keep paragraphs (double newlines)
+        def clean_val(v):
+            if not v: return None
+            # Replace single newlines with space, keep double newlines
+            return re.sub(r'(?<!\n)\n(?!\n)', ' ', v).strip()
+
         result.update({
-            "id": file_path.stem, # Often case ID is filename
+            "id": metadata.get("case_id") or file_path.stem,
             "file_name": file_path.name,
             "date": metadata.get("date"),
             "year": int(metadata.get("date").split("-")[0]) if metadata.get("date") else None,
-            "language": "it", # Ticino is predominantly Italian
-            "court": "TI_CdK", # Corte di cassazione e di revisione penale (example, generic Ticino code)
+            "language": "it",
+            "court": "CH_TI",
             "outcome": metadata.get("outcome"),
             "metadata": {
                 "judges": metadata.get("judges"),
                 "citations": metadata.get("citations"),
-                "lower_court": None
+                "lower_court": metadata.get("lower_court")
             },
             "content": {
                 "regeste": None,
-                "facts": sections.get("facts"),
-                "reasoning": sections.get("reasoning"),
-                "decision": sections.get("decision")
+                "facts": clean_val(sections.get("facts")),
+                "reasoning": clean_val(sections.get("reasoning")),
+                "decision": clean_val(sections.get("decision"))
             }
         })
         
         return result
 
-    def _parse_html(self, file_path: Path) -> str:
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+    def _parse_and_clean_html(self, file_path: Path) -> str:
+        """
+        Aggressive cleaning to handle Word-generated HTML (MsoNormal, &nbsp;, etc.)
+        """
+        with open(file_path, 'r', encoding='utf-8') as f:
             soup = BeautifulSoup(f, 'html.parser')
             
-            # Ticino decisions often use <pre> tags for the main text
-            pre_tag = soup.find('pre')
-            if pre_tag:
-                return pre_tag.get_text()
-            
-            # Fallback to full text if no pre tag
-            return soup.get_text(separator='\n')
+            # 1. Add newlines to block elements so text doesn't merge
+            for block in soup.find_all(['p', 'div', 'h1', 'h2', 'h3', 'br', 'tr']):
+                block.insert_after('\n')
 
-    def _split_sections_ticino(self, text: str) -> Dict[str, str]:
+            # 2. Extract text
+            text = soup.get_text()
+
+            # 3. Normalize Unicode (turns &nbsp; into normal spaces)
+            text = unicodedata.normalize("NFKC", text)
+
+            # 4. Collapse multiple spaces/newlines into clean blocks
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            return "\n".join(lines)
+
+    def _split_sections(self, text: str) -> Dict[str, str]:
         """
-        Specialized splitter for Ticino documents.
+        Splits text handling 3 scenarios:
+        1. Standard: "Fatti" ... "Diritto" ... "Decisione"
+        2. Merged (Old): "In fatto e in diritto" ... "Decisione"
+        3. Missing Facts: Starts directly with "Diritto" (rare but possible)
         """
-        # Common headers in Ticino:
-        # Fatti / Ritenuto in fatto
-        # Diritto / Considerando in diritto
-        # Decisione / Per questi motivi
+        sections = {"facts": "", "reasoning": "", "decision": ""}
         
-        markers = {
-            "facts": [r"Fatti", r"Ritenuto in fatto", r"Ritenuto"],
-            "reasoning": [r"Diritto", r"Considerando in diritto", r"Considerando", r"Considerato"],
-            "decision": [r"Per questi motivi", r"Decisione", r"Dispositivo"]
-        }
+        # --- PATTERNS ---
+        # We use re.IGNORECASE and relax the matching (allow colons, spaces)
         
-        def find_start(txt: str, patterns: list) -> int:
-            for pat in patterns:
-                match = re.search(pat, txt, re.IGNORECASE)
-                if match:
-                    return match.start()
-            return -1
+        # 1. Decision (The Anchor at the end)
+        # Matches: "Per questi motivi", "Decide:", "omissis" (sometimes used)
+        pat_decision = [
+            r"^\s*Per\s+questi\s+motivi", 
+            r"^\s*Dispositivo", 
+            r"^\s*decide\s*[:\.]?$"
+        ]
 
-        facts_start = find_start(text, markers["facts"])
-        reasoning_start = find_start(text, markers["reasoning"])
-        decision_start = find_start(text, markers["decision"])
+        # 2. Law (Reasoning)
+        # Matches: "Diritto", "In diritto", "Considerando", "Considerato"
+        pat_law = [
+            r"^\s*Diritto\s*[:\.]?$", 
+            r"^\s*In\s+diritto\s*[:\.]?$", 
+            r"^\s*Considerando\s*[:\.]?$", 
+            r"^\s*Considerato\s*[:\.]?$"
+        ]
 
-        sections = {
-            "facts": None,
-            "reasoning": None,
-            "decision": None
-        }
+        # 3. Facts
+        # Matches: "Fatti", "In fatto", "Del fatto"
+        pat_facts = [
+            r"^\s*Fatti\s*[:\.]?$", 
+            r"^\s*In\s+fatto\s*[:\.]?$", 
+            r"^\s*Del\s+fatto\s*[:\.]?$"
+        ]
 
-        if facts_start != -1:
-            end = reasoning_start if reasoning_start != -1 else decision_start if decision_start != -1 else len(text)
-            sections["facts"] = text[facts_start:end].strip()
+        # 4. Merged Header (The "1993" Case)
+        pat_merged = [
+            r"^\s*In\s+fatto\s+e\s+in\s+diritto\s*[:\.]?$"
+        ]
+
+        # --- FIND INDICES ---
+        idx_decision = self._find_first_match(text, pat_decision)
+        idx_law = self._find_first_match(text, pat_law)
+        idx_facts = self._find_first_match(text, pat_facts)
+        idx_merged = self._find_first_match(text, pat_merged)
+
+        length = len(text)
+        end_body = idx_decision if idx_decision != -1 else length
+
+        # --- SCENARIO A: Merged Header (1993 Style) ---
+        if idx_merged != -1:
+            # Usually these short decisions mix facts and law. 
+            # We put everything in REASONING as it contains the legal argument.
+            sections["reasoning"] = text[idx_merged:end_body].strip()
+            sections["facts"] = "" # Explicitly empty
         
-        if reasoning_start != -1:
-            end = decision_start if decision_start != -1 else len(text)
-            sections["reasoning"] = text[reasoning_start:end].strip()
-            
-        if decision_start != -1:
-            sections["decision"] = text[decision_start:].strip()
+        # --- SCENARIO B: Standard (Fatti -> Diritto) ---
+        elif idx_facts != -1 and idx_law != -1:
+            # Facts is between Fatti and Law
+            sections["facts"] = text[idx_facts:idx_law].strip()
+            # Reasoning is between Law and Decision
+            sections["reasoning"] = text[idx_law:end_body].strip()
+
+        # --- SCENARIO C: Missing "Fatti" Header (Fallback) ---
+        elif idx_law != -1:
+            # Assume everything before Law is Facts (or header + facts)
+            # We limit the start to avoid capturing the very top court header if possible,
+            # but usually capturing the header into 'facts' is acceptable fallout.
+            sections["facts"] = text[:idx_law].strip()
+            sections["reasoning"] = text[idx_law:end_body].strip()
+
+        # --- SCENARIO D: Everything Failed ---
+        else:
+            # Dump everything into Reasoning so we don't lose data
+            sections["reasoning"] = text[:end_body].strip()
+
+        # Extract Decision (always the same logic)
+        if idx_decision != -1:
+            sections["decision"] = text[idx_decision:].strip()
 
         return sections
+
+    def _find_first_match(self, text: str, patterns: list) -> int:
+        """Helper to find the earliest occurrence of any pattern in the list."""
+        best_idx = -1
+        for pat in patterns:
+            # MULTILINE is crucial so ^ matches start of line, not just start of string
+            match = re.search(pat, text, re.MULTILINE | re.IGNORECASE)
+            if match:
+                if best_idx == -1 or match.start() < best_idx:
+                    best_idx = match.start()
+        return best_idx
