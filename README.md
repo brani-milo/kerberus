@@ -210,7 +210,7 @@ Requires replacing scrapers and adapting metadata schema for local court hierarc
 | **Vector DB** | Qdrant |
 | **SQL DB** | PostgreSQL 15 |
 | **Encrypted Storage** | SQLCipher |
-| **LLM** | Qwen3-VL (235B) |
+| **LLM** | Qwen3-VL (235B) | Mistral-Small-3.2-24B-Instruct-2506
 | **Deployment** | Docker + Infomaniak |
 | **Frontend** | Chainlit → React |
 
