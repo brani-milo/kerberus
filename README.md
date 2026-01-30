@@ -175,7 +175,7 @@ make parse-ticino     # Parse Ticino decisions
 - Qwen3-VL API integration
 - Authentication system (email + MFA)
 - Chainlit conversational interface
-- **Automated Document Review** (AI-driven analysis of document sets at scale based on user-defined criteria)
+- Automated Document Review (AI-driven analysis of document sets at scale based on user-defined criteria)
 - Production deployment on Infomaniak
 
 ### **🔮 Future**
@@ -191,7 +191,8 @@ make parse-ticino     # Parse Ticino decisions
 While built for Switzerland, KERBERUS can be adapted to any civil law jurisdiction with public legal databases:
 
 - 🇩🇪 Germany (bundesgerichtshof.de)
-- 🇸🇪 Sweden (domstol.se)
+- �🇷 France (legifrance.gouv.fr)
+- �🇸🇪 Sweden (domstol.se)
 - 🇦🇹 Austria (ris.bka.gv.at)
 - 🇧🇪 Belgium (juridat.be)
 - 🇳🇱 Netherlands (rechtspraak.nl)
