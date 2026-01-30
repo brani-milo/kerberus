@@ -39,7 +39,7 @@ Instead of a theoretical exercise, KERBERUS focuses on:
 I chose to open-source this reference implementation because:
 - ✅ Developers building compliance AI can learn from a complete reference implementation
 - ✅ Showcases capabilities beyond typical take-home assignments or coursework
-- ✅ Adaptable to any jurisdiction (Germany, Sweden, Austria, etc.)
+- ✅ Adaptable to any civil law jurisdiction (Germany, Austria, France, etc.)
 - ✅ More valuable to my career than a minimally-viable commercial product
 
 **What makes this interesting:**
@@ -86,8 +86,9 @@ This prevents token bloat while maintaining conversation quality - the same patt
 - Incremental scraping with state management
 - Smart year-range detection (avoids re-downloading)
 - Rate limiting and retry logic
-- **Ticino scraper:** ~30,000 judgments (1990-present)
-- **Coming:** BGE/ATF (Federal Supreme Court), Fedlex (federal laws)
+- Ticino scraper: ~30,000 judgments (1990-present)
+- BGE/ATF scraper: ~150,000 published federal decisions
+- Fedlex scraper: Active federal laws and ordinances (OR, ZGB, StGB, etc.) — dynamically synchronized to purge repealed legislation
 
 ---
 
@@ -132,8 +133,8 @@ This ensures recent, authoritative precedents surface first while maintaining se
 - Triad search architecture
 - Ticino court scraper with incremental updates
 - BGE/ATF scraper (Federal Supreme Court published decisions)
-- **Fedlex scraper** (Swiss federal laws - OR, ZGB, StGB) with auto-repeal handling
-- **Parsing Engine** (PDF/HTML -> JSON)
+- Fedlex scraper (Swiss federal laws - OR, ZGB, StGB) with auto-repeal handling
+- Parsing Engine (PDF/HTML -> JSON)
   - Metadata extraction (Judges, Dates, Outcomes)
   - Legal citation linking (e.g. `Art. 337 OR` -> `SR 220`)
   - Intelligent section splitting (Facts vs. Reasoning)
@@ -174,6 +175,7 @@ make parse-ticino     # Parse Ticino decisions
 - Qwen3-VL API integration
 - Authentication system (email + MFA)
 - Chainlit conversational interface
+- **Automated Document Review** (AI-driven analysis of document sets at scale based on user-defined criteria)
 - Production deployment on Infomaniak
 
 ### **🔮 Future**
