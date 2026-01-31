@@ -1,0 +1,20 @@
+2026-01-31 09:39:30,011 - src.parsers.fedlex_parser - INFO - Parsing SR_101_de.pdf (SR 101, de)
+2026-01-31 09:39:30,235 - src.parsers.fedlex_parser - INFO - Extracted 397 articles from SR_101_de.pdf
+2026-01-31 09:39:30,243 - src.parsers.fedlex_parser - INFO - Parsing SR_101_fr.pdf (SR 101, fr)
+2026-01-31 09:39:30,480 - src.parsers.fedlex_parser - INFO - Extracted 409 articles from SR_101_fr.pdf
+2026-01-31 09:39:30,487 - src.parsers.fedlex_parser - INFO - Parsing SR_101_it.pdf (SR 101, it)
+2026-01-31 09:39:30,721 - src.parsers.fedlex_parser - INFO - Extracted 409 articles from SR_101_it.pdf
+2026-01-31 09:47:14,118 - src.parsers.fedlex_parser - INFO - Loaded abbreviations registry with 1507 laws
+2026-01-31 09:47:14,118 - src.parsers.fedlex_parser - INFO - Parsing SR_101_de.pdf (SR 101, de)
+2026-01-31 09:47:14,352 - src.parsers.fedlex_parser - INFO - Extracted 397 articles from SR_101_de.pdf
+2026-01-31 09:47:14,360 - src.parsers.fedlex_parser - INFO - Parsing SR_101_fr.pdf (SR 101, fr)
+2026-01-31 09:47:14,598 - src.parsers.fedlex_parser - INFO - Extracted 409 articles from SR_101_fr.pdf
+2026-01-31 09:47:14,606 - src.parsers.fedlex_parser - INFO - Parsing SR_101_it.pdf (SR 101, it)
+2026-01-31 09:47:14,841 - src.parsers.fedlex_parser - INFO - Extracted 409 articles from SR_101_it.pdf
+2026-01-31 14:31:44,458 - src.parsers.fedlex_parser - INFO - Loaded abbreviations registry with 1507 laws
+2026-01-31 14:31:44,458 - src.parsers.fedlex_parser - INFO - Parsing SR_220_de.pdf (SR 220, de)
+2026-01-31 14:31:45,694 - src.parsers.fedlex_parser - INFO - Extracted 2907 articles from SR_220_de.pdf
+2026-01-31 14:31:45,726 - src.parsers.fedlex_parser - INFO - Parsing SR_220_fr.pdf (SR 220, fr)
+2026-01-31 14:31:46,966 - src.parsers.fedlex_parser - INFO - Extracted 3130 articles from SR_220_fr.pdf
+2026-01-31 14:31:47,002 - src.parsers.fedlex_parser - INFO - Parsing SR_220_it.pdf (SR 220, it)
+2026-01-31 14:31:48,221 - src.parsers.fedlex_parser - INFO - Extracted 3100 articles from SR_220_it.pdf

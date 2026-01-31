@@ -5,7 +5,7 @@ Qdrant vector database manager for KERBERUS.
 import logging
 from typing import List, Dict, Optional
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue, SparseVectorParams, SparseIndexParams
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -46,33 +46,52 @@ class QdrantManager:
         self,
         collection_name: str,
         vector_size: int = 1024,
-        distance: Distance = Distance.COSINE
+        distance: Distance = Distance.COSINE,
+        enable_sparse: bool = True
     ):
         """
         Create a new collection.
 
         Args:
             collection_name: Name of collection
-            vector_size: Embedding dimension (1024 for BGE-M3)
+            vector_size: Embedding dimension of dense vector
             distance: Distance metric (Cosine recommended)
+            enable_sparse: Whether to enable sparse vectors for hybrid search
         """
         try:
             # Check if collection exists
             collections = self.client.get_collections().collections
             if any(col.name == collection_name for col in collections):
                 logger.info(f"Collection '{collection_name}' already exists")
+                # Warning: We don't partial update schema here. If schema changed, need to recreate.
                 return
+
+            # Configure vectors
+            vectors_config = {
+                "dense": VectorParams(
+                    size=vector_size,
+                    distance=distance
+                )
+            }
+            
+            sparse_vector_config = None
+            if enable_sparse:
+                sparse_vector_config = {
+                    "sparse": SparseVectorParams(
+                        index=SparseIndexParams(
+                            on_disk=False,
+                        )
+                    )
+                }
 
             # Create collection
             self.client.create_collection(
                 collection_name=collection_name,
-                vectors_config=VectorParams(
-                    size=vector_size,
-                    distance=distance
-                )
+                vectors_config=vectors_config,
+                sparse_vectors_config=sparse_vector_config
             )
 
-            logger.info(f"✅ Created collection: {collection_name}")
+            logger.info(f"✅ Created collection: {collection_name} (sparse={enable_sparse})")
 
         except Exception as e:
             logger.error(f"Failed to create collection: {e}", exc_info=True)
@@ -88,18 +107,66 @@ class QdrantManager:
 
         Args:
             collection_name: Target collection
-            points: List of dicts with 'id', 'vector', 'payload' keys
+            points: List of dicts with 'id', 'vector', 'payload' keys.
+                    'vector' can be a list (single dense) or dict (named vectors).
         """
         try:
             # Convert to PointStruct format
-            point_structs = [
-                PointStruct(
-                    id=point.get('id', str(uuid.uuid4())),
-                    vector=point['vector'],
-                    payload=point.get('payload', {})
+            point_structs = []
+            for point in points:
+                raw_id = point.get('id')
+                
+                # Check for UUID validity, fallback to generating one if needed
+                try:
+                    if raw_id:
+                        # Try to parse as UUID
+                        struct_id = str(uuid.UUID(str(raw_id)))
+                    else:
+                        raise ValueError("Empty ID")
+                except (ValueError, TypeError, AttributeError):
+                    # If invalid UUID, generate deterministic UUID from string ID if possible
+                    if raw_id:
+                         # Use UUID5 (SHA-1 hash) with namespace URL for consistency
+                         struct_id = str(uuid.uuid5(uuid.NAMESPACE_URL, str(raw_id)))
+                    else:
+                         struct_id = str(uuid.uuid4())
+
+                # Inject original ID into payload so we don't lose it
+                payload = point.get('payload', {})
+                payload['_original_id'] = raw_id
+                
+                # Handle vector format (could be plain list or dictionary of named vectors)
+                vector_data = point['vector']
+                
+                # Pre-processing for Sparse Vectors:
+                # BGE returns sparse weights as dict {token_id: weight}.
+                # Qdrant expects SparseVector(indices=[...], values=[...]).
+                if isinstance(vector_data, dict) and "sparse" in vector_data:
+                    sparse_raw = vector_data["sparse"]
+                    if isinstance(sparse_raw, dict):
+                         # Convert {id: weight} to {indices: [], values: []}
+                         indices = []
+                         values = []
+                         for k, v in sparse_raw.items():
+                             try:
+                                 indices.append(int(k))
+                                 values.append(float(v))
+                             except ValueError:
+                                 continue
+                         
+                         from qdrant_client.models import SparseVector
+                         vector_data["sparse"] = SparseVector(indices=indices, values=values)
+
+                # If we get a dictionary with 'dense'/'sparse', we pass it directly
+                # as Qdrant client handles named vectors mapping automatically
+                
+                point_structs.append(
+                    PointStruct(
+                        id=struct_id,
+                        vector=vector_data,
+                        payload=payload
+                    )
                 )
-                for point in points
-            ]
 
             # Upsert
             self.client.upsert(
@@ -172,6 +239,71 @@ class QdrantManager:
         except Exception as e:
             logger.error(f"Search failed for {collection_name}: {e}", exc_info=True)
             return []
+
+    def search_hybrid(
+        self,
+        collection_name: str,
+        dense_vector: List[float],
+        sparse_vector: Dict[str, float],
+        limit: int = 50,
+        filters: Optional[Dict] = None
+    ) -> List[Dict]:
+        """
+        Perform hybrid search using dense and sparse vectors (RRF-style or Prefetch).
+        """
+        from qdrant_client import models
+
+        query_filter = None
+        if filters:
+            conditions = [
+                FieldCondition(
+                    key=key,
+                    match=MatchValue(value=value)
+                )
+                for key, value in filters.items()
+            ]
+            query_filter = Filter(must=conditions)
+
+        sparse_indices = []
+        sparse_values = []
+        for k, v in sparse_vector.items():
+            try:
+                sparse_indices.append(int(k))
+                sparse_values.append(float(v))
+            except ValueError:
+                pass
+        
+        prefetch = [
+            models.Prefetch(
+                query=dense_vector,
+                using="dense",
+                limit=limit * 2,
+                filter=query_filter
+            ),
+            models.Prefetch(
+                query=models.SparseVector(indices=sparse_indices, values=sparse_values),
+                using="sparse",
+                limit=limit * 2,
+                filter=query_filter
+            )
+        ]
+        
+        results = self.client.query_points(
+            collection_name=collection_name,
+            prefetch=prefetch,
+            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            limit=limit,
+        ).points
+
+        return [
+            {
+                'id': point.id,
+                'score': point.score,
+                'payload': point.payload,
+                'embedding': None 
+            }
+            for point in results
+        ]
 
 
 def init_qdrant_collections():

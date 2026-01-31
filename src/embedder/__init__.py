@@ -6,3 +6,8 @@ This package provides multilingual embedding generation for:
 - User queries
 - Document similarity matching
 """
+
+from .bge_embedder import BGEEmbedder, get_embedder
+from .batch_processor import BatchEmbeddingProcessor
+
+__all__ = ["BGEEmbedder", "get_embedder", "BatchEmbeddingProcessor"]

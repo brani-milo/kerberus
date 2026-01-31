@@ -9,6 +9,11 @@ Optimized for:
 """
 
 import logging
+import os
+
+# Fix for "Option::unwrap() on None" panic in tokenizers/multiprocessing
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import asyncio
 from typing import List, Optional, Dict
 from functools import lru_cache
@@ -35,7 +40,7 @@ class BGEEmbedder:
         self,
         model_name: str = "BAAI/bge-m3",
         device: str = "mps",
-        max_length: int = 8192,
+        max_length: int = 2048,
         use_fp16: bool = True
     ):
         """
@@ -101,13 +106,12 @@ class BGEEmbedder:
         async with self._lock:
             return await asyncio.to_thread(self._encode_single, text)
 
-    def _encode_single(self, text: str) -> List[float]:
+    def _encode_single(self, text: str) -> Dict[str, any]:
         """Internal sync encoding method."""
         try:
             # Check token length
-            # Note: Approximate - real tokenization happens inside model
             word_count = len(text.split())
-            if word_count > (self.max_length // 2):  # Rough estimate
+            if word_count > (self.max_length // 2):
                 logger.warning(
                     f"Input might exceed {self.max_length} tokens "
                     f"(~{word_count} words). Text will be truncated."
@@ -118,23 +122,28 @@ class BGEEmbedder:
                 text,
                 max_length=self.max_length,
                 return_dense=True,
-                return_sparse=False,
+                return_sparse=True,
                 return_colbert_vecs=False
             )
 
             # Extract dense embedding
-            # When encoding a single string, dense_vecs is 1D array of shape (1024,)
             dense_embedding = embeddings['dense_vecs']
-
-            # Convert to list
             if isinstance(dense_embedding, torch.Tensor):
                 dense_embedding = dense_embedding.cpu().numpy()
-
-            # Ensure it's a numpy array
+            
             if isinstance(dense_embedding, np.ndarray):
-                return dense_embedding.tolist()
+                dense_list = dense_embedding.tolist()
             else:
-                return list(dense_embedding)
+                dense_list = list(dense_embedding)
+
+            # Extract sparse embedding
+            sparse_embedding = embeddings['lexical_weights']
+            # sparse_embedding is already a dict of {str: float} or similar from BGE
+            
+            return {
+                "dense": dense_list,
+                "sparse": sparse_embedding
+            }
 
         except Exception as e:
             logger.error(f"Encoding failed: {e}", exc_info=True)
@@ -145,17 +154,17 @@ class BGEEmbedder:
         texts: List[str],
         batch_size: int = 32,
         show_progress: bool = False
-    ) -> List[List[float]]:
+    ) -> List[Dict[str, any]]:
         """
-        Encode multiple texts in batches (for nightly processing).
+        Encode multiple texts in batches (dense + sparse).
 
         Args:
             texts: List of input texts
-            batch_size: Number of texts per batch (lower = less RAM)
+            batch_size: Number of texts per batch
             show_progress: Show progress logging
 
         Returns:
-            List of 1024-dimensional embedding vectors
+            List of dicts: [{'dense': [...], 'sparse': {...}}, ...]
         """
         all_embeddings = []
 
@@ -168,18 +177,25 @@ class BGEEmbedder:
                     batch,
                     max_length=self.max_length,
                     return_dense=True,
-                    return_sparse=False,
+                    return_sparse=True,
                     return_colbert_vecs=False
                 )
 
                 # Extract dense embeddings
                 dense_embeddings = embeddings['dense_vecs']
-
-                # Convert to list of lists
                 if isinstance(dense_embeddings, torch.Tensor):
                     dense_embeddings = dense_embeddings.cpu().numpy()
+                dense_list = dense_embeddings.tolist()
 
-                all_embeddings.extend(dense_embeddings.tolist())
+                # Extract sparse embeddings (list of dicts)
+                sparse_embeddings = embeddings['lexical_weights']
+
+                # Combine into result structure
+                for d, s in zip(dense_list, sparse_embeddings):
+                    all_embeddings.append({
+                        "dense": d,
+                        "sparse": s
+                    })
 
                 if show_progress:
                     logger.info(f"Encoded {i + len(batch)}/{len(texts)} documents")

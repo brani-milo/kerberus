@@ -4,7 +4,7 @@
 # Quick start: make setup && make start
 # ============================================
 
-.PHONY: setup start stop restart logs test clean init-dossier scrape-ticino scrape-ticino-full scrape-ticino-test scrape-federal scrape-federal-test scrape-fedlex scrape-fedlex-test help
+.PHONY: setup start stop restart logs test clean init-dossier scrape-ticino scrape-ticino-full scrape-ticino-test scrape-federal scrape-federal-test scrape-fedlex scrape-fedlex-test build-abbrev-registry parse-federal parse-ticino parse-ticino-test parse-fedlex parse-fedlex-test embed-fedlex embed-fedlex-test embed-decisions embed-decisions-test embed-all embed-status help
 
 # ============================================
 # SETUP & INSTALLATION
@@ -131,6 +131,10 @@ scrape-fedlex-test: ## Test Fedlex scraper (5 laws only)
 	@echo "🔍 Testing Fedlex scraper (5 laws only)..."
 	. venv/bin/activate && python scripts/scrape_fedlex.py --test --verbose
 
+build-abbrev-registry: ## Build law abbreviation registry from Fedlex SPARQL
+	@echo "📚 Building abbreviation registry from Fedlex..."
+	. venv/bin/activate && python scripts/build_abbreviation_registry.py
+
 # ============================================
 # DATA PARSING
 # ============================================
@@ -142,6 +146,44 @@ parse-federal: ## Parse Federal decisions (PDF/HTML -> JSON)
 parse-ticino: ## Parse Ticino decisions (HTML -> JSON)
 	@echo "🧠 Parsing Ticino decisions..."
 	. venv/bin/activate && python scripts/parse_ticino.py
+
+parse-ticino-test: ## Test Ticino parser (5 files only)
+	@echo "🧠 Testing Ticino parser (5 files only)..."
+	. venv/bin/activate && python scripts/parse_ticino.py --test --verbose
+
+parse-fedlex: ## Parse Fedlex PDFs (articles with hierarchical metadata)
+	@echo "📖 Parsing Fedlex PDFs..."
+	. venv/bin/activate && python scripts/parse_fedlex.py
+
+parse-fedlex-test: ## Test Fedlex parser (3 PDFs only)
+	@echo "📖 Testing Fedlex parser (3 PDFs only)..."
+	. venv/bin/activate && python scripts/parse_fedlex.py --test --verbose
+
+# ============================================
+# EMBEDDING
+# ============================================
+
+embed-fedlex: ## Embed Fedlex articles into codex collection
+	@echo "🔢 Embedding Fedlex articles..."
+	. venv/bin/activate && python scripts/embed_fedlex.py
+
+embed-fedlex-test: ## Test Fedlex embedding (10 articles only)
+	@echo "🔢 Testing Fedlex embedding..."
+	. venv/bin/activate && python scripts/embed_fedlex.py --test --verbose
+
+embed-decisions: ## Embed Federal and Ticino decisions into library collection
+	@echo "🔢 Embedding court decisions..."
+	. venv/bin/activate && python scripts/embed_decisions.py
+
+embed-decisions-test: ## Test decision embedding (5 decisions only)
+	@echo "🔢 Testing decision embedding..."
+	. venv/bin/activate && python scripts/embed_decisions.py --test --verbose
+
+embed-all: embed-fedlex embed-decisions ## Embed all parsed data
+	@echo "✅ All embeddings complete"
+
+embed-status: ## Show embedding statistics
+	. venv/bin/activate && python scripts/embed_status.py
 
 # ============================================
 # CLEANUP

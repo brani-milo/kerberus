@@ -14,13 +14,13 @@ collections:
   # Swiss legal code (OR, ZGB, StGB, etc.)
   codex:
     name: codex
-    vector_size: 768  # BGE-M3 embedding dimension
+    vector_size: 1024  # BGE-M3 embedding dimension
     distance: Cosine
 
   # Case law (BGE, cantonal courts)
   library:
     name: library
-    vector_size: 768  # BGE-M3 embedding dimension
+    vector_size: 1024  # BGE-M3 embedding dimension
     distance: Cosine
 
 # ============================================

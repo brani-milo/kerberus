@@ -128,7 +128,9 @@ This ensures recent, authoritative precedents surface first while maintaining se
 
 ### **✅ Completed**
 - Production infrastructure (Docker, Qdrant, PostgreSQL, Redis)
-- Multilingual embeddings and reranking (BGE-M3, BGE-Reranker)
+- **Hybrid Search Engine** (Dense + Sparse Retrieval) with Reciprocal Rank Fusion (RRF)
+- Multilingual BGE-M3 Embeddings (Dense 1024d + Sparse Lexical Weights)
+- Qdrant Vector Database population (Laws + Case Law)
 - Dynamic context swapping implementation
 - Triad search architecture
 - Ticino court scraper with incremental updates
@@ -148,17 +150,27 @@ make scrape-fedlex
 
 # Ticino Court Decisions
 make scrape-ticino        # Incremental update
-make scrape-ticino-full   # Re-download everything from 1990
 
 # Federal Court Decisions
 make scrape-federal
 ```
 
-### **Data Processing (Parsing)**
-Transform raw PDFs/HTMLs into structured JSON with metadata:
+### **Data Processing & Embedding**
+Transform raw data into searchable Hybrid Vectors:
 ```bash
-make parse-federal    # Parse BGE, BGer, BVGE
-make parse-ticino     # Parse Ticino decisions
+# 1. Parse raw files to JSON
+make parse-federal
+make parse-ticino
+
+# 2. Generate Hybrid Embeddings (Dense + Sparse)
+make embed-fedlex    # Embed Laws
+make embed-decisions # Embed Court Decisions (Federal & Ticino)
+```
+
+### **Search**
+Test the Hybrid Search Engine:
+```bash
+python scripts/test_search.py
 ```
 
 ## 🎥 Demo
@@ -166,7 +178,6 @@ make parse-ticino     # Parse Ticino decisions
 **Coming Soon:** Video walkthrough and hosted demo
 
 ### **🚧 In Progress**
-- Qdrant collection population (Vector ingestion)
 - Zero-knowledge encryption layer
 
 ### **🔜 Next**
