@@ -1,0 +1,247 @@
+{
+  "metadata": {
+    "created": "2026-01-31",
+    "source": "Cantone Ticino - Raccolta delle leggi",
+    "description": "Abbreviations for Ticino cantonal laws",
+    "total_laws": 45,
+    "language": "it"
+  },
+  "by_rl": {
+    "1.1.1.1": {
+      "abbrev": "Cost./TI",
+      "title": "Costituzione della Repubblica e Cantone Ticino"
+    },
+    "3.1.1.1": {
+      "abbrev": "LT",
+      "title": "Legge tributaria"
+    },
+    "3.1.1.2": {
+      "abbrev": "RLT",
+      "title": "Regolamento della legge tributaria"
+    },
+    "3.2.1.1": {
+      "abbrev": "LTB",
+      "title": "Legge sulle tasse di bollo"
+    },
+    "3.3.1.1": {
+      "abbrev": "LTras",
+      "title": "Legge sulle tasse di trapasso"
+    },
+    "3.4.1.1": {
+      "abbrev": "LTSucc",
+      "title": "Legge sulle tasse di successione e donazione"
+    },
+    "3.5.1.1": {
+      "abbrev": "LIC",
+      "title": "Legge sulle imposte di consumo"
+    },
+    "4.1.1.1": {
+      "abbrev": "LOG",
+      "title": "Legge sull'organizzazione e la procedura in materia di tutele e curatele"
+    },
+    "4.2.1.1": {
+      "abbrev": "LOC",
+      "title": "Legge organica comunale"
+    },
+    "4.2.2.1": {
+      "abbrev": "LASC",
+      "title": "Legge sulle aggregazioni e separazioni dei Comuni"
+    },
+    "5.1.1.1": {
+      "abbrev": "LG",
+      "title": "Legge sulla procedura giudiziaria"
+    },
+    "5.1.2.1": {
+      "abbrev": "LTAC",
+      "title": "Legge sul Tribunale amministrativo cantonale"
+    },
+    "5.1.3.1": {
+      "abbrev": "LOrG",
+      "title": "Legge sull'organizzazione giudiziaria"
+    },
+    "5.2.1.1": {
+      "abbrev": "CPC/TI",
+      "title": "Codice di procedura civile ticinese (abrogato)"
+    },
+    "5.3.1.1": {
+      "abbrev": "CPP/TI",
+      "title": "Codice di procedura penale ticinese (abrogato)"
+    },
+    "5.4.1.1": {
+      "abbrev": "LPAmm",
+      "title": "Legge di procedura per le cause amministrative"
+    },
+    "6.1.1.1": {
+      "abbrev": "LORD",
+      "title": "Legge organica patriziale"
+    },
+    "7.1.1.1": {
+      "abbrev": "LE",
+      "title": "Legge sull'esercizio dei diritti politici"
+    },
+    "7.2.1.1": {
+      "abbrev": "LGC",
+      "title": "Legge sul Gran Consiglio e sui rapporti con il Consiglio di Stato"
+    },
+    "8.1.1.1": {
+      "abbrev": "LOrd",
+      "title": "Legge sull'ordinamento degli impiegati dello Stato"
+    },
+    "8.1.2.1": {
+      "abbrev": "LStip",
+      "title": "Legge sugli stipendi degli impiegati dello Stato e dei docenti"
+    },
+    "9.1.1.1": {
+      "abbrev": "LSan",
+      "title": "Legge sanitaria"
+    },
+    "9.2.1.1": {
+      "abbrev": "LCAMal",
+      "title": "Legge di applicazione della LAMal"
+    },
+    "9.3.1.1": {
+      "abbrev": "LFarm",
+      "title": "Legge sugli esercizi alberghieri e sulla ristorazione"
+    },
+    "10.1.1.1": {
+      "abbrev": "LScuola",
+      "title": "Legge della scuola"
+    },
+    "10.2.1.1": {
+      "abbrev": "LASoc",
+      "title": "Legge sull'assistenza sociale"
+    },
+    "11.1.1.1": {
+      "abbrev": "LST",
+      "title": "Legge sullo sviluppo territoriale"
+    },
+    "11.1.2.1": {
+      "abbrev": "LE",
+      "title": "Legge edilizia"
+    },
+    "11.2.1.1": {
+      "abbrev": "LALiaS",
+      "title": "Legge d'applicazione della legge federale sull'assicurazione per l'invalidità"
+    },
+    "12.1.1.1": {
+      "abbrev": "LAMb",
+      "title": "Legge cantonale d'applicazione della legge federale sulla protezione dell'ambiente"
+    },
+    "12.2.1.1": {
+      "abbrev": "LAcque",
+      "title": "Legge sulla protezione delle acque"
+    },
+    "13.1.1.1": {
+      "abbrev": "LStr",
+      "title": "Legge sulle strade"
+    },
+    "13.2.1.1": {
+      "abbrev": "LNav",
+      "title": "Legge sulla navigazione interna"
+    },
+    "14.1.1.1": {
+      "abbrev": "LApP",
+      "title": "Legge sugli appalti pubblici"
+    },
+    "14.2.1.1": {
+      "abbrev": "LCPubb",
+      "title": "Legge sul commercio e l'industria"
+    },
+    "15.1.1.1": {
+      "abbrev": "LAgr",
+      "title": "Legge sull'agricoltura"
+    },
+    "15.2.1.1": {
+      "abbrev": "LFor",
+      "title": "Legge sulle foreste"
+    }
+  },
+  "by_abbrev": {
+    "LT": ["3.1.1.1"],
+    "RLT": ["3.1.1.2"],
+    "LTB": ["3.2.1.1"],
+    "LTRAS": ["3.3.1.1"],
+    "LTSUCC": ["3.4.1.1"],
+    "LIC": ["3.5.1.1"],
+    "LOG": ["4.1.1.1"],
+    "LOC": ["4.2.1.1"],
+    "LASC": ["4.2.2.1"],
+    "LG": ["5.1.1.1"],
+    "LTAC": ["5.1.2.1"],
+    "LORG": ["5.1.3.1"],
+    "CPC/TI": ["5.2.1.1"],
+    "CPP/TI": ["5.3.1.1"],
+    "LPAMM": ["5.4.1.1"],
+    "LPA": ["5.4.1.1"],
+    "LORD": ["6.1.1.1"],
+    "LE": ["7.1.1.1", "11.1.2.1"],
+    "LGC": ["7.2.1.1"],
+    "LORD": ["8.1.1.1"],
+    "LSTIP": ["8.1.2.1"],
+    "LSAN": ["9.1.1.1"],
+    "LCAMAL": ["9.2.1.1"],
+    "LFARM": ["9.3.1.1"],
+    "LSCUOLA": ["10.1.1.1"],
+    "LASOC": ["10.2.1.1"],
+    "LST": ["11.1.1.1"],
+    "LALIAS": ["11.2.1.1"],
+    "LAMB": ["12.1.1.1"],
+    "LACQUE": ["12.2.1.1"],
+    "LSTR": ["13.1.1.1"],
+    "LNAV": ["13.2.1.1"],
+    "LAPP": ["14.1.1.1"],
+    "LAPPALTI": ["14.1.1.1"],
+    "LCPUBB": ["14.2.1.1"],
+    "LAGR": ["15.1.1.1"],
+    "LFOR": ["15.2.1.1"],
+    "COST./TI": ["1.1.1.1"],
+    "COST/TI": ["1.1.1.1"]
+  },
+  "all_codes": [
+    "LT",
+    "RLT",
+    "LTB",
+    "LTRAS",
+    "LTSUCC",
+    "LIC",
+    "LOG",
+    "LOC",
+    "LASC",
+    "LG",
+    "LTAC",
+    "LORG",
+    "CPC/TI",
+    "CPP/TI",
+    "LPAMM",
+    "LPA",
+    "LORD",
+    "LE",
+    "LGC",
+    "LSTIP",
+    "LSAN",
+    "LCAMAL",
+    "LFARM",
+    "LSCUOLA",
+    "LASOC",
+    "LST",
+    "LALIAS",
+    "LAMB",
+    "LACQUE",
+    "LSTR",
+    "LNAV",
+    "LAPP",
+    "LAPPALTI",
+    "LCPUBB",
+    "LAGR",
+    "LFOR",
+    "COST./TI",
+    "COST/TI",
+    "LAFE",
+    "LAC",
+    "RLC",
+    "LIP",
+    "LPROG",
+    "LALC",
+    "LTAG"
+  ]
+}

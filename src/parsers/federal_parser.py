@@ -159,71 +159,150 @@ class FederalParser(BaseParser):
     def _split_sections(self, text: str, lang: str) -> Dict[str, str]:
         sections = {"regeste": None, "facts": "", "reasoning": "", "decision": ""}
         
-        # --- PATTERNS (Start of line ^ is important) ---
-        # --- PATTERNS (Start of line ^ is important) ---
-        # Added more robust patterns (e.g. "Das Bundesverwaltungsgericht zieht in Erwägung")
-        # Included 're.MULTILINE' in search, so ^ matches start of line.
+        # --- PATTERNS ---
+        # "Strong" patterns are explicit headers (Sachverhalt, Erwägung).
+        # "Weak" patterns are generic counters (I., II., A.) which are prone to false positives.
+        # We only use weak patterns if NO strong patterns are found for that section.
+        
         patterns = {
             "de": {
-                "facts": [r"^\s*Sachverhalt", r"^\s*Tatbestand", r"^\s*A\.-", r"^\s*I\."],
-                "reasoning": [r"^\s*Erwägung", r"^\s*Aus den Erwägungen", r"^\s*B\.-", r"^\s*Das\s+Bundesverwaltungsgericht\s+zieht\s+in\s+Erwägung", r"^\s*II\."],
-                "decision": [r"^\s*Dispositiv", r"^\s*Demnach erkennt", r"^\s*Urteil", r"^\s*Erkenntnis", r"^\s*III\."]
+                "facts": {
+                    "strong": [
+                        r"^\s*Sachverhalt:?", 
+                        r"^\s*Tatbestand:?"
+                    ],
+                    "weak": [r"^\s*A\.-", r"^\s*I\."]
+                },
+                "reasoning": {
+                    "strong": [
+                        r"^\s*Erwägung:?",
+                        r"^\s*Aus den Erwägungen:?",
+                        r"^\s*(?:Das|Die)\s+[\w\s]+\s+zieht\s+in\s+Erwägung:?" # Generalized "Das ... zieht in Erwägung"
+                    ],
+                    "weak": [r"^\s*B\.-", r"^\s*II\."]
+                },
+                "decision": {
+                    "strong": [
+                        r"^\s*Dispositiv:?", 
+                        r"^\s*Demnach erkennt.*:", 
+                        r"^\s*Urteil:?", 
+                        r"^\s*Erkenntnis:?"
+                    ],
+                    "weak": [r"^\s*III\."]
+                }
             },
             "fr": {
-                "facts": [r"^\s*Faits", r"^\s*En fait", r"^\s*A\.-", r"^\s*I\."],
-                "reasoning": [r"^\s*Considérant", r"^\s*En droit", r"^\s*B\.-", r"^\s*Le\s+Tribunal\s+administratif\s+fédéral\s+considère", r"^\s*II\."],
-                "decision": [r"^\s*Dispositif", r"^\s*Par ces motifs", r"^\s*Prononce", r"^\s*III\."]
+                "facts": {
+                    "strong": [r"^\s*Faits:?", r"^\s*En fait:?"],
+                    "weak": [r"^\s*A\.-", r"^\s*I\."]
+                },
+                "reasoning": {
+                    "strong": [
+                        r"^\s*Considérant:?", 
+                        r"^\s*En droit:?",
+                        r"^\s*(?:Le|La)\s+[\w\s]+\s+considère:?"
+                    ],
+                    "weak": [r"^\s*B\.-", r"^\s*II\."]
+                },
+                "decision": {
+                    "strong": [r"^\s*Dispositif:?", r"^\s*Par ces motifs:?", r"^\s*Prononce:?"],
+                    "weak": [r"^\s*III\."]
+                }
             },
             "it": {
-                "facts": [r"^\s*Fatti", r"^\s*In fatto", r"^\s*A\.-", r"^\s*I\."],
-                "reasoning": [r"^\s*Diritto", r"^\s*In diritto", r"^\s*Considerando", r"^\s*B\.-", r"^\s*II\."],
-                "decision": [r"^\s*Dispositivo", r"^\s*Per questi motivi", r"^\s*Pronuncia", r"^\s*III\."]
+                "facts": {
+                    "strong": [r"^\s*Fatti:?", r"^\s*In fatto:?"],
+                    "weak": [r"^\s*A\.-", r"^\s*I\."]
+                },
+                "reasoning": {
+                    "strong": [
+                        r"^\s*Diritto:?", 
+                        r"^\s*In diritto:?", 
+                        r"^\s*Considerando:?"
+                    ],
+                    "weak": [r"^\s*B\.-", r"^\s*II\."]
+                },
+                "decision": {
+                    "strong": [r"^\s*Dispositivo:?", r"^\s*Per questi motivi:?", r"^\s*Pronuncia:?"],
+                    "weak": [r"^\s*III\."]
+                }
             }
         }
 
         lang_pats = patterns.get(lang, patterns["de"])
         
-        def find_idx(txt, pats):
-            best = -1
-            for p in pats:
+        def find_best_idx(txt, section_pats):
+            # 1. Try Strong Patterns
+            # We want the *first* occurrence of *any* strong pattern that matches.
+            # But wait, if multiple strong patterns match, we want the earliest one in the text.
+            best_strong = -1
+            for p in section_pats["strong"]:
                 match = re.search(p, txt, re.MULTILINE | re.IGNORECASE)
                 if match:
-                    if best == -1 or match.start() < best:
-                        best = match.start()
-            return best
+                    if best_strong == -1 or match.start() < best_strong:
+                        best_strong = match.start()
+            
+            if best_strong != -1:
+                return best_strong
 
-        idx_facts = find_idx(text, lang_pats["facts"])
-        idx_reasoning = find_idx(text, lang_pats["reasoning"])
-        idx_decision = find_idx(text, lang_pats["decision"])
+            # 2. Fallback to Weak Patterns
+            best_weak = -1
+            for p in section_pats["weak"]:
+                match = re.search(p, txt, re.MULTILINE | re.IGNORECASE)
+                if match:
+                    if best_weak == -1 or match.start() < best_weak:
+                        best_weak = match.start()
+            
+            return best_weak
+
+        idx_facts = find_best_idx(text, lang_pats["facts"])
+        idx_reasoning = find_best_idx(text, lang_pats["reasoning"])
+        idx_decision = find_best_idx(text, lang_pats["decision"])
+
+        # SANITY CHECK: Ensure logical order (Facts < Reasoning < Decision)
+        # If strict order is violated with weak patterns, we might want to invalidate the weak match.
+        # But for now, let's just proceed with simple slicing logic.
 
         # LOGIC
         length = len(text)
         
         # 1. REGESTE (Headnote) extraction
-        # Everything BEFORE the Facts starts is potentially the Regeste/Header
-        # We limit it to avoid capturing the whole file if facts aren't found
         if idx_facts != -1:
             raw_header = text[:idx_facts].strip()
-            # Heuristic: Regeste is usually the last chunk of the header
-            # For now, we store the whole header as regeste, embedding will act as filter
             sections["regeste"] = raw_header[-2000:] if len(raw_header) > 2000 else raw_header
+        elif idx_reasoning != -1:
+             # If no facts found, but reasoning found, everything before reasoning is regeste
+             sections["regeste"] = text[:idx_reasoning][-2000:]
 
         # 2. FACTS
         if idx_facts != -1:
-            end = idx_reasoning if idx_reasoning > idx_facts else (idx_decision if idx_decision > idx_facts else length)
+            # End of facts is start of reasoning, or start of decision, or end of text
+            candidates = [i for i in [idx_reasoning, idx_decision, length] if i > idx_facts]
+            end = min(candidates)
             sections["facts"] = text[idx_facts:end].strip()
         
         # 3. REASONING
         if idx_reasoning != -1:
-            end = idx_decision if idx_decision > idx_reasoning else length
+            candidates = [i for i in [idx_decision, length] if i > idx_reasoning]
+            end = min(candidates)
             sections["reasoning"] = text[idx_reasoning:end].strip()
+        elif idx_facts != -1:
+             # If facts exist but NO reasoning header found, the rest is reasoning?
+             # Or maybe the "Facts" section actually contains reasoning?
+             # Fallback: if we have facts but no reasoning header, usually the reasoning is just implicit or missed.
+             # We try to grab from end-of-facts to decision.
+             if idx_decision != -1 and idx_decision > idx_facts:
+                  # Assuming facts ends at logic break? No, we can't guess.
+                  # But typically, if we missed the Reasoning header, we might just have a huge Facts block.
+                  # Let's check if we can rescue it -> default behavior is do nothing (empty reasoning).
+                  pass
             
         # 4. DECISION
         if idx_decision != -1:
             sections["decision"] = text[idx_decision:].strip()
 
-        # Fallback: If no headers found (very old PDFs), put all in reasoning
-        if idx_facts == -1 and idx_reasoning == -1:
+        # Fallback for old PDFs: If nothing found, put everything in reasoning
+        if idx_facts == -1 and idx_reasoning == -1 and idx_decision == -1:
              sections["reasoning"] = text
              
         return sections
