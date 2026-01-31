@@ -37,17 +37,19 @@ class FedlexParser:
     """
 
     # Regex patterns for article detection
+    # Note: Article numbers are limited to 1-4 digits to avoid matching footnote references
+    # that get merged with article numbers (e.g., "Art. 901759" where 759 is a footnote)
     ARTICLE_PATTERNS = {
-        "de": r'^Art\.\s*(\d+[a-z]*(?:bis|ter|quater|quinquies)?)\s*$',
-        "fr": r'^Art\.\s*(\d+[a-z]*(?:bis|ter|quater|quinquies)?)\s*$',
-        "it": r'^Art\.\s*(\d+[a-z]*(?:bis|ter|quater|quinquies)?)\s*$'
+        "de": r'^Art\.\s*(\d{1,4}[a-z]?(?:bis|ter|quater|quinquies)?)\s*$',
+        "fr": r'^Art\.\s*(\d{1,4}[a-z]?(?:bis|ter|quater|quinquies)?)\s*$',
+        "it": r'^Art\.\s*(\d{1,4}[a-z]?(?:bis|ter|quater|quinquies)?)\s*$'
     }
 
     # Inline article pattern (Art. X Title on same line)
     ARTICLE_INLINE_PATTERNS = {
-        "de": r'^Art\.\s*(\d+[a-z]*(?:bis|ter|quater|quinquies)?)\s+(.+)$',
-        "fr": r'^Art\.\s*(\d+[a-z]*(?:bis|ter|quater|quinquies)?)\s+(.+)$',
-        "it": r'^Art\.\s*(\d+[a-z]*(?:bis|ter|quater|quinquies)?)\s+(.+)$'
+        "de": r'^Art\.\s*(\d{1,4}[a-z]?(?:bis|ter|quater|quinquies)?)\s+(.+)$',
+        "fr": r'^Art\.\s*(\d{1,4}[a-z]?(?:bis|ter|quater|quinquies)?)\s+(.+)$',
+        "it": r'^Art\.\s*(\d{1,4}[a-z]?(?:bis|ter|quater|quinquies)?)\s+(.+)$'
     }
 
     # Hierarchical structure patterns
@@ -240,6 +242,15 @@ class FedlexParser:
 
         # Remove page numbers at start of lines
         text = re.sub(r'^\d+\s*$', '', text, flags=re.MULTILINE)
+
+        # Remove footnote references that get attached to article numbers
+        # Pattern: "Art. 123a756" -> "Art. 123a" (where 756 is footnote)
+        # Match Art. + 1-4 digits + optional letter + optional bis/ter + 3+ digit footnote
+        text = re.sub(
+            r'(Art\.\s*\d{1,4}[a-z]?(?:bis|ter|quater|quinquies)?)(\d{3,})',
+            r'\1',
+            text
+        )
 
         # Normalize whitespace within lines (but preserve newlines)
         lines = text.split('\n')

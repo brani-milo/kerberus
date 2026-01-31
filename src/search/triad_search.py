@@ -50,7 +50,7 @@ class TriadSearch:
         top_k: int = 10
     ) -> Dict:
         """
-        Execute triad search across all lanes.
+        Execute triad search across all lanes using hybrid search.
 
         Args:
             query: User query
@@ -65,18 +65,18 @@ class TriadSearch:
                 'library': {'results': [...], 'confidence': 'MEDIUM', 'message': '...'},
                 'dossier': {'results': [...], 'confidence': 'LOW', 'message': '...'},
                 'overall_confidence': 'MEDIUM',
-                'query_embedding': [...]
+                'query_embedding': {...}
             }
         """
         try:
-            # Step 1: Generate query embedding
-            query_embedding = await self.embedder.encode_async(query)
+            # Step 1: Generate query embedding (dense + sparse)
+            query_vectors = await self.embedder.encode_async(query)
 
-            # Step 2: Search all lanes in parallel
+            # Step 2: Search all lanes in parallel using hybrid search
             lane_tasks = [
-                self._search_lane("codex", query, query_embedding, filters, top_k),
-                self._search_lane("library", query, query_embedding, filters, top_k),
-                self._search_dossier(user_id, firm_id, query, query_embedding, filters, top_k)
+                self._search_lane("codex", query, query_vectors, filters, top_k),
+                self._search_lane("library", query, query_vectors, filters, top_k),
+                self._search_dossier(user_id, firm_id, query, query_vectors, filters, top_k)
             ]
 
             codex_result, library_result, dossier_result = await asyncio.gather(*lane_tasks)
@@ -91,7 +91,7 @@ class TriadSearch:
                 'library': library_result,
                 'dossier': dossier_result,
                 'overall_confidence': overall_confidence,
-                'query_embedding': query_embedding
+                'query_embedding': query_vectors
             }
 
         except Exception as e:
@@ -102,24 +102,25 @@ class TriadSearch:
         self,
         collection_name: str,
         query: str,
-        query_embedding: List[float],
+        query_vectors: Dict[str, any],
         filters: Optional[Dict],
         top_k: int
     ) -> Dict:
         """
-        Search single lane with full pipeline.
+        Search single lane with full hybrid pipeline.
 
         Pipeline:
-        1. Vector search (top 50)
-        2. MMR (top 20)
-        3. Rerank (top 10)
+        1. Hybrid search - RRF fusion of dense + sparse (top 50)
+        2. MMR diversification (top 20)
+        3. Rerank with cross-encoder (top 10)
         4. Confidence scoring
         """
         try:
-            # Step 1: Vector search
-            candidates = await self.vector_db.search_async(
+            # Step 1: Hybrid search (dense + sparse with RRF fusion)
+            candidates = self.vector_db.search_hybrid(
                 collection_name=collection_name,
-                query_vector=query_embedding,
+                dense_vector=query_vectors['dense'],
+                sparse_vector=query_vectors['sparse'],
                 limit=50,
                 filters=filters
             )
@@ -132,17 +133,33 @@ class TriadSearch:
                 }
 
             # Step 2: MMR diversification
+            # Note: RRF already provides some diversity, but MMR further optimizes it
+            # We use the dense query vector for similarity comparison
             diverse_results = apply_mmr(
                 candidates=candidates,
-                query_embedding=query_embedding,
+                query_embedding=query_vectors['dense'],
                 lambda_param=0.7,
                 top_k=20
             )
 
             # Step 3: Rerank with confidence
+            # Extract text with fallback chain for different document types
+            rerank_docs = []
+            for doc in diverse_results:
+                payload = doc.get('payload', {})
+                # Fallback chain: article_text (Fedlex) -> text -> content.reasoning (decisions) -> empty
+                text = (
+                    payload.get('article_text') or
+                    payload.get('text') or
+                    payload.get('content', {}).get('reasoning') or
+                    payload.get('content', {}).get('regeste') or
+                    ''
+                )
+                rerank_docs.append({'text': text, **doc})
+
             reranked = self.reranker.rerank_with_confidence(
                 query=query,
-                documents=[{'text': doc['payload'].get('text', ''), **doc} for doc in diverse_results],
+                documents=rerank_docs,
                 top_k=top_k
             )
 
@@ -161,12 +178,12 @@ class TriadSearch:
         user_id: Optional[str],
         firm_id: Optional[str],
         query: str,
-        query_embedding: List[float],
+        query_vectors: Dict[str, any],
         filters: Optional[Dict],
         top_k: int
     ) -> Dict:
         """
-        Search user's personal and firm shared dossiers.
+        Search user's personal and firm shared dossiers using hybrid search.
 
         Combines:
         - Personal dossier (dossier_user_{uuid})
@@ -190,24 +207,23 @@ class TriadSearch:
                     'message': 'No dossier available'
                 }
 
-            # Search all dossier collections in parallel
-            search_tasks = [
-                self.vector_db.search_async(
-                    collection_name=col,
-                    query_vector=query_embedding,
-                    limit=25,  # 25 per collection = 50 total
-                    filters=filters
-                )
-                for col in collections_to_search
-            ]
-
-            results_per_collection = await asyncio.gather(*search_tasks, return_exceptions=True)
-
-            # Combine results
+            # Search all dossier collections in parallel using hybrid search
             all_results = []
-            for results in results_per_collection:
-                if isinstance(results, list):
-                    all_results.extend(results)
+            for col in collections_to_search:
+                try:
+                    results = self.vector_db.search_hybrid(
+                        collection_name=col,
+                        dense_vector=query_vectors['dense'],
+                        sparse_vector=query_vectors['sparse'],
+                        limit=25,  # 25 per collection = 50 total
+                        filters=filters
+                    )
+                    if results:
+                        all_results.extend(results)
+                except Exception as col_error:
+                    # Collection might not exist yet, skip silently
+                    logger.debug(f"Dossier collection {col} not found or error: {col_error}")
+                    continue
 
             if not all_results:
                 return {
@@ -222,14 +238,26 @@ class TriadSearch:
             # Apply MMR and rerank
             diverse_results = apply_mmr(
                 candidates=all_results,
-                query_embedding=query_embedding,
+                query_embedding=query_vectors['dense'],
                 lambda_param=0.7,
                 top_k=20
             )
 
+            # Extract text with fallback chain for dossier documents
+            rerank_docs = []
+            for doc in diverse_results:
+                payload = doc.get('payload', {})
+                text = (
+                    payload.get('text') or
+                    payload.get('content') or
+                    payload.get('article_text') or
+                    ''
+                )
+                rerank_docs.append({'text': text, **doc})
+
             reranked = self.reranker.rerank_with_confidence(
                 query=query,
-                documents=[{'text': doc['payload'].get('text', ''), **doc} for doc in diverse_results],
+                documents=rerank_docs,
                 top_k=top_k
             )
 

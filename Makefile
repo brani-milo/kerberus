@@ -63,7 +63,7 @@ logs-postgres: ## View PostgreSQL logs
 	docker compose logs -f postgres
 
 logs-redis: ## View Redis logs
-	docker docker composecompose logs -f redis
+	docker compose logs -f redis
 
 # ============================================
 # TESTING

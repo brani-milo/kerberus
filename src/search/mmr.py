@@ -2,11 +2,12 @@
 Maximal Marginal Relevance (MMR) for diversifying search results.
 
 Eliminates redundant documents while maintaining relevance.
+Supports both embedding-based and metadata-based diversity.
 """
 
 import logging
 import numpy as np
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +36,60 @@ def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
     return float(dot_product / (norm1 * norm2))
 
 
+def _get_document_key(doc: Dict) -> str:
+    """
+    Extract a unique key for a document based on payload metadata.
+    Used for metadata-based diversity when embeddings are unavailable.
+    """
+    payload = doc.get('payload', {})
+
+    # Try different document type identifiers
+    # Fedlex articles
+    if payload.get('article_number'):
+        return f"{payload.get('sr_number', '')}_{payload.get('article_number')}"
+
+    # Court decisions
+    if payload.get('decision_id'):
+        return payload['decision_id']
+
+    # Original ID fallback
+    if payload.get('_original_id'):
+        return str(payload['_original_id'])
+
+    # Last resort: use the document id
+    return str(doc.get('id', ''))
+
+
+def _metadata_similarity(doc1: Dict, doc2: Dict) -> float:
+    """
+    Calculate similarity between documents based on metadata.
+    Returns 1.0 if same source/article, 0.5 if same law/court, 0.0 otherwise.
+    """
+    p1 = doc1.get('payload', {})
+    p2 = doc2.get('payload', {})
+
+    # Same article = maximum similarity
+    if _get_document_key(doc1) == _get_document_key(doc2):
+        return 1.0
+
+    # Same law (SR number) = high similarity
+    if p1.get('sr_number') and p1.get('sr_number') == p2.get('sr_number'):
+        return 0.7
+
+    # Same court = medium similarity
+    if p1.get('court') and p1.get('court') == p2.get('court'):
+        return 0.5
+
+    # Same source = low similarity
+    if p1.get('source') and p1.get('source') == p2.get('source'):
+        return 0.3
+
+    return 0.0
+
+
 def apply_mmr(
     candidates: List[Dict],
-    query_embedding: List[float],
+    query_embedding: Optional[List[float]] = None,
     lambda_param: float = 0.7,
     top_k: int = 20
 ) -> List[Dict]:
@@ -48,9 +100,13 @@ def apply_mmr(
     - Relevance to query (lambda_param)
     - Diversity from already-selected docs (1 - lambda_param)
 
+    Supports two modes:
+    1. Embedding-based: Uses cosine similarity (when doc embeddings available)
+    2. Metadata-based: Uses document metadata (when embeddings unavailable)
+
     Args:
-        candidates: List of dicts with 'embedding' and 'score' keys
-        query_embedding: Query vector
+        candidates: List of dicts with 'score' key and optionally 'embedding'
+        query_embedding: Query vector (optional, used if doc embeddings available)
         lambda_param: Relevance vs diversity (0.0-1.0)
             - 1.0 = max relevance (no diversity)
             - 0.0 = max diversity (ignores relevance)
@@ -66,6 +122,12 @@ def apply_mmr(
     if len(candidates) <= top_k:
         return candidates
 
+    # Check if embeddings are available
+    has_embeddings = (
+        candidates[0].get('embedding') is not None and
+        query_embedding is not None
+    )
+
     try:
         # Always include top result (highest relevance)
         selected = [candidates[0]]
@@ -77,14 +139,21 @@ def apply_mmr(
             best_idx = 0
 
             for idx, candidate in enumerate(remaining):
-                # Relevance to query
-                relevance = cosine_similarity(candidate['embedding'], query_embedding)
-
-                # Maximum similarity to already-selected documents
-                max_similarity = max(
-                    cosine_similarity(candidate['embedding'], selected_doc['embedding'])
-                    for selected_doc in selected
-                )
+                if has_embeddings:
+                    # Embedding-based MMR
+                    relevance = cosine_similarity(candidate['embedding'], query_embedding)
+                    max_similarity = max(
+                        cosine_similarity(candidate['embedding'], selected_doc['embedding'])
+                        for selected_doc in selected
+                    )
+                else:
+                    # Metadata-based MMR (fallback for hybrid search)
+                    # Use retrieval score as relevance proxy
+                    relevance = candidate.get('score', 0.5)
+                    max_similarity = max(
+                        _metadata_similarity(candidate, selected_doc)
+                        for selected_doc in selected
+                    )
 
                 # MMR score
                 mmr_score = lambda_param * relevance - (1 - lambda_param) * max_similarity

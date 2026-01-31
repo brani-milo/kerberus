@@ -90,7 +90,7 @@ class BGEEmbedder:
             logger.error(f"Failed to load BGE-M3 model: {e}", exc_info=True)
             raise RuntimeError(f"BGE-M3 initialization failed: {e}")
 
-    async def encode_async(self, text: str) -> List[float]:
+    async def encode_async(self, text: str) -> Dict[str, any]:
         """
         Encode single text asynchronously (for user queries).
 
@@ -98,7 +98,7 @@ class BGEEmbedder:
             text: Input text (e.g., legal query)
 
         Returns:
-            1024-dimensional embedding vector
+            Dict with 'dense' (1024-dimensional vector) and 'sparse' (lexical weights)
 
         Raises:
             RuntimeError: If encoding fails

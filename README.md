@@ -140,6 +140,22 @@ This ensures recent, authoritative precedents surface first while maintaining se
   - Metadata extraction (Judges, Dates, Outcomes)
   - Legal citation linking (e.g. `Art. 337 OR` -> `SR 220`)
   - Intelligent section splitting (Facts vs. Reasoning)
+- **Authentication System** (PostgreSQL-backed)
+  - User registration with bcrypt password hashing
+  - Session management with secure tokens
+  - Token usage tracking for billing
+- **Multi-Factor Authentication (MFA)**
+  - TOTP-based (compatible with Google Authenticator, Authy)
+  - QR code generation for easy setup
+  - Backup codes for account recovery
+- **Encrypted Dossier Storage** (SQLCipher)
+  - AES-256 encrypted user document storage
+  - Per-user isolated databases
+  - Integration with Qdrant for semantic search
+- **Chainlit Conversational Interface**
+  - Dual-collection search (Laws + Case Law)
+  - Multilingual mode toggle for cross-language queries
+  - Real-time search with filters (year, language, scope)
 
 ## 🛠️ Usage
 
@@ -178,16 +194,14 @@ python scripts/test_search.py
 **Coming Soon:** Video walkthrough and hosted demo
 
 ### **🚧 In Progress**
-- Zero-knowledge encryption layer
+- REST API layer (FastAPI)
+- PII detection and scrubbing (Presidio)
 
 ### **🔜 Next**
-- SQLCipher integration (zero-knowledge document storage)
-- PII detection and scrubbing
-- Qwen3-VL API integration
-- Authentication system (email + MFA)
-- Chainlit conversational interface
-- Automated Document Review (AI-driven analysis of document sets at scale based on user-defined criteria)
+- Qwen3-VL API integration (LLM responses)
+- Automated Document Review (AI-driven analysis of document sets at scale)
 - Production deployment on Infomaniak
+- Firm management (shared dossiers, role-based access)
 
 ### **🔮 Future**
 - Citation graph analysis (identify landmark cases)
@@ -216,23 +230,26 @@ Requires replacing scrapers and adapting metadata schema for local court hierarc
 
 | Component | Technology |
 |-----------|-----------|
-| **Embeddings** | BGE-M3 (BAAI) |
+| **Embeddings** | BGE-M3 (1024d Dense + Sparse Lexical) |
 | **Reranking** | BGE-Reranker-v2-M3 |
-| **Vector DB** | Qdrant |
-| **SQL DB** | PostgreSQL 15 |
-| **Encrypted Storage** | SQLCipher |
-| **LLM** | Qwen3-VL (235B) & Mistral-Small-3.2-24B-Instruct-2506 |
+| **Vector DB** | Qdrant (Hybrid Search with RRF) |
+| **Auth DB** | PostgreSQL 15 |
+| **Encrypted Storage** | SQLCipher (AES-256) |
+| **Authentication** | bcrypt + TOTP (MFA) |
+| **LLM** | Qwen3-VL (235B) & Mistral-Small-3.2-24B |
 | **Deployment** | Docker + Infomaniak |
-| **Frontend** | Chainlit → React |
+| **Frontend** | Chainlit (conversational UI) |
 
 ---
 
 ## 🔐 Security & Privacy
 
-- **Zero-knowledge encryption** - AES-256, keys never leave user session
-- **Swiss data sovereignty** - All infrastructure hosted in Switzerland
+- **Zero-knowledge encryption** - SQLCipher AES-256, keys derived from user password (we cannot decrypt without user)
+- **MFA authentication** - TOTP-based (Google Authenticator compatible) + backup codes
+- **Session security** - Cryptographically secure tokens, automatic expiration
+- **Swiss data sovereignty** - All infrastructure hosted in Switzerland (Infomaniak)
 - **GDPR compliant** - By design, no third-party tracking
-- **API key security** - Stored in Infomaniak KMS / HashiCorp Vault
+- **Password security** - bcrypt with 12 rounds, secure password verification
 
 ---
 

@@ -106,11 +106,14 @@ class DossierDB:
             return
 
         try:
-            from pysqlcipher3 import dbapi2 as sqlcipher
+            try:
+                from pysqlcipher3 import dbapi2 as sqlcipher
+            except ImportError:
+                from sqlcipher3 import dbapi2 as sqlcipher
         except ImportError:
             raise ImportError(
-                "pysqlcipher3 is required for encrypted storage. "
-                "Install with: pip install pysqlcipher3"
+                "Neither pysqlcipher3 nor sqlcipher3 found. "
+                "On Python 3.13+, please use: pip install sqlcipher3"
             )
 
         # Ensure storage directory exists
@@ -224,8 +227,43 @@ class DossierDB:
         Returns:
             Document ID.
         """
-        # TODO: Implement on Day 4
-        raise NotImplementedError("Document storage will be implemented on Day 4")
+        import json
+        now = datetime.now().isoformat()
+
+        with self.get_cursor() as cursor:
+            # Check if document exists (for update)
+            cursor.execute(
+                "SELECT doc_id FROM documents WHERE doc_id = ?",
+                (doc_id,)
+            )
+            exists = cursor.fetchone() is not None
+
+            if exists:
+                # Update existing document
+                cursor.execute("""
+                    UPDATE documents
+                    SET title = ?, content = ?, doc_type = ?, language = ?,
+                        metadata = ?, updated_at = ?
+                    WHERE doc_id = ?
+                """, (
+                    title, content, doc_type, language,
+                    json.dumps(metadata) if metadata else None,
+                    now, doc_id
+                ))
+            else:
+                # Insert new document
+                cursor.execute("""
+                    INSERT INTO documents (
+                        doc_id, title, content, doc_type, language,
+                        created_at, updated_at, metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    doc_id, title, content, doc_type, language,
+                    now, now,
+                    json.dumps(metadata) if metadata else None
+                ))
+
+        return doc_id
 
     def get_document(self, doc_id: str) -> Optional[Dict]:
         """
@@ -237,8 +275,30 @@ class DossierDB:
         Returns:
             Document dict or None if not found.
         """
-        # TODO: Implement on Day 4
-        raise NotImplementedError("Document retrieval will be implemented on Day 4")
+        import json
+
+        with self.get_cursor() as cursor:
+            cursor.execute("""
+                SELECT doc_id, title, content, doc_type, language,
+                       created_at, updated_at, metadata
+                FROM documents
+                WHERE doc_id = ?
+            """, (doc_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return {
+                "doc_id": row[0],
+                "title": row[1],
+                "content": row[2],
+                "doc_type": row[3],
+                "language": row[4],
+                "created_at": row[5],
+                "updated_at": row[6],
+                "metadata": json.loads(row[7]) if row[7] else {}
+            }
 
     def delete_document(self, doc_id: str) -> bool:
         """
@@ -250,8 +310,28 @@ class DossierDB:
         Returns:
             True if deleted, False if not found.
         """
-        # TODO: Implement on Day 4
-        raise NotImplementedError("Document deletion will be implemented on Day 4")
+        with self.get_cursor() as cursor:
+            # First check if document exists
+            cursor.execute(
+                "SELECT doc_id FROM documents WHERE doc_id = ?",
+                (doc_id,)
+            )
+            if not cursor.fetchone():
+                return False
+
+            # Delete chunks first (cascade should handle this, but be explicit)
+            cursor.execute(
+                "DELETE FROM document_chunks WHERE doc_id = ?",
+                (doc_id,)
+            )
+
+            # Delete the document
+            cursor.execute(
+                "DELETE FROM documents WHERE doc_id = ?",
+                (doc_id,)
+            )
+
+        return True
 
     def list_documents(
         self,
@@ -268,10 +348,46 @@ class DossierDB:
             offset: Number of documents to skip.
 
         Returns:
-            List of document metadata dicts.
+            List of document metadata dicts (without full content).
         """
-        # TODO: Implement on Day 4
-        raise NotImplementedError("Document listing will be implemented on Day 4")
+        import json
+
+        with self.get_cursor() as cursor:
+            if doc_type:
+                cursor.execute("""
+                    SELECT doc_id, title, doc_type, language,
+                           created_at, updated_at, metadata,
+                           LENGTH(content) as content_length
+                    FROM documents
+                    WHERE doc_type = ?
+                    ORDER BY updated_at DESC
+                    LIMIT ? OFFSET ?
+                """, (doc_type, limit, offset))
+            else:
+                cursor.execute("""
+                    SELECT doc_id, title, doc_type, language,
+                           created_at, updated_at, metadata,
+                           LENGTH(content) as content_length
+                    FROM documents
+                    ORDER BY updated_at DESC
+                    LIMIT ? OFFSET ?
+                """, (limit, offset))
+
+            rows = cursor.fetchall()
+
+            return [
+                {
+                    "doc_id": row[0],
+                    "title": row[1],
+                    "doc_type": row[2],
+                    "language": row[3],
+                    "created_at": row[4],
+                    "updated_at": row[5],
+                    "metadata": json.loads(row[6]) if row[6] else {},
+                    "content_length": row[7]
+                }
+                for row in rows
+            ]
 
     # ==========================================
     # Chunk Operations (Stub - Day 4)
@@ -292,8 +408,36 @@ class DossierDB:
         Returns:
             List of chunk IDs.
         """
-        # TODO: Implement on Day 4
-        raise NotImplementedError("Chunk storage will be implemented on Day 4")
+        import uuid
+        now = datetime.now().isoformat()
+        chunk_ids = []
+
+        with self.get_cursor() as cursor:
+            # First delete any existing chunks for this document
+            cursor.execute(
+                "DELETE FROM document_chunks WHERE doc_id = ?",
+                (doc_id,)
+            )
+
+            # Insert new chunks
+            for idx, chunk in enumerate(chunks):
+                chunk_id = str(uuid.uuid4())
+                cursor.execute("""
+                    INSERT INTO document_chunks (
+                        chunk_id, doc_id, chunk_index, content,
+                        embedding_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    chunk_id,
+                    doc_id,
+                    idx,
+                    chunk.get("content", ""),
+                    chunk.get("embedding_id"),
+                    now
+                ))
+                chunk_ids.append(chunk_id)
+
+        return chunk_ids
 
     def get_chunks_by_embedding_ids(
         self,
@@ -308,10 +452,38 @@ class DossierDB:
             embedding_ids: List of embedding IDs from Qdrant.
 
         Returns:
-            List of chunk dicts with content.
+            List of chunk dicts with content and document info.
         """
-        # TODO: Implement on Day 4
-        raise NotImplementedError("Chunk retrieval will be implemented on Day 4")
+        if not embedding_ids:
+            return []
+
+        with self.get_cursor() as cursor:
+            # Create placeholders for IN clause
+            placeholders = ",".join("?" * len(embedding_ids))
+
+            cursor.execute(f"""
+                SELECT c.chunk_id, c.doc_id, c.chunk_index, c.content,
+                       c.embedding_id, d.title, d.doc_type
+                FROM document_chunks c
+                JOIN documents d ON c.doc_id = d.doc_id
+                WHERE c.embedding_id IN ({placeholders})
+                ORDER BY c.doc_id, c.chunk_index
+            """, embedding_ids)
+
+            rows = cursor.fetchall()
+
+            return [
+                {
+                    "chunk_id": row[0],
+                    "doc_id": row[1],
+                    "chunk_index": row[2],
+                    "content": row[3],
+                    "embedding_id": row[4],
+                    "doc_title": row[5],
+                    "doc_type": row[6]
+                }
+                for row in rows
+            ]
 
     # ==========================================
     # Lifecycle

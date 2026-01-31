@@ -180,6 +180,49 @@ class QdrantManager:
             logger.error(f"Upsert failed: {e}", exc_info=True)
             raise
 
+    def search_dense(
+        self,
+        collection_name: str,
+        dense_vector: List[float],
+        limit: int = 50,
+        filters: Optional[Dict] = None
+    ) -> List[Dict]:
+        """
+        Search using only dense vectors (semantic/multilingual search).
+
+        This is better for cross-lingual queries because it doesn't
+        include lexical matching which favors same-language results.
+
+        Args:
+            collection_name: Collection to search
+            dense_vector: 1024D dense embedding
+            limit: Number of results
+            filters: Metadata filters
+
+        Returns:
+            List of results with cosine similarity scores (0-1)
+        """
+        query_filter = self._build_filter(filters)
+
+        # Use query_points with named vector
+        results = self.client.query_points(
+            collection_name=collection_name,
+            query=dense_vector,
+            using="dense",  # Named vector
+            limit=limit,
+            query_filter=query_filter
+        ).points
+
+        return [
+            {
+                'id': point.id,
+                'score': point.score,
+                'payload': point.payload,
+                'embedding': None
+            }
+            for point in results
+        ]
+
     async def search_async(
         self,
         collection_name: str,
@@ -189,7 +232,7 @@ class QdrantManager:
         filters: Optional[Dict] = None
     ) -> List[Dict]:
         """
-        Search collection asynchronously.
+        Search collection asynchronously (dense-only, legacy method).
 
         Args:
             collection_name: Collection to search
@@ -214,14 +257,15 @@ class QdrantManager:
                 ]
                 query_filter = Filter(must=conditions)
 
-            # Search
-            results = self.client.search(
+            # Search using named dense vector
+            results = self.client.query_points(
                 collection_name=collection_name,
-                query_vector=query_vector,
+                query=query_vector,
+                using="dense",
                 limit=limit,
                 score_threshold=score_threshold,
                 query_filter=query_filter
-            )
+            ).points
 
             # Convert to dict format
             formatted_results = [
@@ -249,21 +293,27 @@ class QdrantManager:
         filters: Optional[Dict] = None
     ) -> List[Dict]:
         """
-        Perform hybrid search using dense and sparse vectors (RRF-style or Prefetch).
+        Perform hybrid search using dense and sparse vectors with RRF fusion.
+
+        RRF (Reciprocal Rank Fusion) combines results from both dense (semantic)
+        and sparse (lexical/BM25-like) retrieval for better recall.
+
+        Args:
+            collection_name: Target collection
+            dense_vector: 1024D dense embedding from BGE-M3
+            sparse_vector: Lexical weights dict {token_id: weight}
+            limit: Number of results
+            filters: Optional metadata filters
+
+        Returns:
+            List of results with 'id', 'score', 'payload' keys
         """
         from qdrant_client import models
 
-        query_filter = None
-        if filters:
-            conditions = [
-                FieldCondition(
-                    key=key,
-                    match=MatchValue(value=value)
-                )
-                for key, value in filters.items()
-            ]
-            query_filter = Filter(must=conditions)
+        # Build advanced filter
+        query_filter = self._build_filter(filters)
 
+        # Convert sparse dict to indices/values arrays
         sparse_indices = []
         sparse_values = []
         for k, v in sparse_vector.items():
@@ -272,7 +322,8 @@ class QdrantManager:
                 sparse_values.append(float(v))
             except ValueError:
                 pass
-        
+
+        # Prefetch from both dense and sparse indexes
         prefetch = [
             models.Prefetch(
                 query=dense_vector,
@@ -287,7 +338,8 @@ class QdrantManager:
                 filter=query_filter
             )
         ]
-        
+
+        # Execute with RRF fusion
         results = self.client.query_points(
             collection_name=collection_name,
             prefetch=prefetch,
@@ -300,10 +352,94 @@ class QdrantManager:
                 'id': point.id,
                 'score': point.score,
                 'payload': point.payload,
-                'embedding': None 
+                'embedding': None  # RRF doesn't return stored vectors
             }
             for point in results
         ]
+
+    def _build_filter(self, filters: Optional[Dict]) -> Optional[Filter]:
+        """
+        Build Qdrant filter from dictionary specification.
+
+        Supports:
+        - year_range: {'min': 2020, 'max': 2024}
+        - sources: ['federal', 'ticino']
+        - cantons: ['ZH', 'TI']
+        - law_types: ['civil', 'penal']
+        - Single value matches: {'language': 'de'}
+        """
+        if not filters:
+            return None
+
+        from qdrant_client import models
+
+        must_conditions = []
+
+        for key, value in filters.items():
+            if key == 'year_range':
+                # Range filter for year field
+                rng = models.Range(
+                    gte=value.get('min'),
+                    lte=value.get('max')
+                )
+                must_conditions.append(
+                    FieldCondition(key='year', range=rng)
+                )
+
+            elif key == 'sources':
+                if isinstance(value, list) and value:
+                    must_conditions.append(
+                        FieldCondition(key='source', match=models.MatchAny(any=value))
+                    )
+
+            elif key == 'cantons':
+                if isinstance(value, list) and value:
+                    must_conditions.append(
+                        FieldCondition(key='canton', match=models.MatchAny(any=value))
+                    )
+
+            elif key == 'law_types':
+                if isinstance(value, list) and value:
+                    must_conditions.append(
+                        FieldCondition(key='law_type', match=models.MatchAny(any=value))
+                    )
+
+            elif isinstance(value, list):
+                # Generic list handling
+                must_conditions.append(
+                    FieldCondition(key=key, match=models.MatchAny(any=value))
+                )
+            else:
+                # Simple single value match
+                must_conditions.append(
+                    FieldCondition(key=key, match=MatchValue(value=value))
+                )
+
+        return Filter(must=must_conditions) if must_conditions else None
+
+    async def search_hybrid_async(
+        self,
+        collection_name: str,
+        dense_vector: List[float],
+        sparse_vector: Dict[str, float],
+        limit: int = 50,
+        filters: Optional[Dict] = None
+    ) -> List[Dict]:
+        """
+        Async wrapper for hybrid search.
+
+        Note: Qdrant client operations are synchronous, so this uses
+        asyncio.to_thread for non-blocking execution.
+        """
+        import asyncio
+        return await asyncio.to_thread(
+            self.search_hybrid,
+            collection_name,
+            dense_vector,
+            sparse_vector,
+            limit,
+            filters
+        )
 
 
 def init_qdrant_collections():

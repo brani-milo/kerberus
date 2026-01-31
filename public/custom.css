@@ -1,0 +1,325 @@
+/* ============================================
+   KERBERUS - Custom Chainlit Theme
+   Swiss Legal Intelligence
+   ============================================ */
+
+/* Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* CSS Variables for KERBERUS Brand */
+:root {
+    --kerberus-red: #8B1E3F;
+    --kerberus-red-light: #C73E5C;
+    --kerberus-gray: #4A5568;
+    --kerberus-dark: #1A202C;
+    --kerberus-blue: #2C5282;
+    --kerberus-bg: #F7FAFC;
+    --kerberus-card: rgba(255, 255, 255, 0.85);
+}
+
+/* Apply Font Globally */
+body,
+.MuiTypography-root,
+* {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+}
+
+/* Premium Background */
+body {
+    background-color: var(--kerberus-bg) !important;
+    background-image:
+        radial-gradient(at 100% 0%, rgba(139, 30, 63, 0.08) 0px, transparent 50%),
+        radial-gradient(at 0% 100%, rgba(44, 82, 130, 0.08) 0px, transparent 50%);
+    background-attachment: fixed;
+}
+
+/* ============================================
+   HEADER - Big Logo Upper Right
+   ============================================ */
+header {
+    background: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(20px);
+    border-bottom: 2px solid rgba(139, 30, 63, 0.1) !important;
+    min-height: 80px !important;
+    padding: 0.5rem 1.5rem !important;
+}
+
+/* Header Container - Flex to push logo right */
+header > div {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+}
+
+/* Logo in Header - Big and Right-aligned */
+header img,
+header svg {
+    max-height: 70px !important;
+    width: auto !important;
+    object-fit: contain !important;
+}
+
+/* Header Title Styling */
+header h1,
+header .MuiTypography-h6 {
+    font-weight: 600 !important;
+    color: var(--kerberus-dark) !important;
+    font-size: 1.5rem !important;
+}
+
+/* ============================================
+   WELCOME SCREEN - Prominent Branding
+   ============================================ */
+.welcome-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2.5rem 3rem;
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 50%, #f0f4f8 100%);
+    border-radius: 20px;
+    box-shadow:
+        0 20px 60px -15px rgba(139, 30, 63, 0.15),
+        0 0 0 1px rgba(139, 30, 63, 0.05);
+    margin-bottom: 2rem;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Decorative accent line */
+.welcome-container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--kerberus-red), var(--kerberus-blue));
+}
+
+.welcome-text h1 {
+    font-size: 3rem !important;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--kerberus-dark) 0%, var(--kerberus-gray) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 0.75rem;
+    letter-spacing: -0.02em;
+}
+
+.welcome-text p {
+    font-size: 1.1rem;
+    color: var(--kerberus-gray);
+    line-height: 1.6;
+}
+
+.welcome-text b {
+    color: var(--kerberus-red);
+    font-weight: 600;
+}
+
+/* Welcome Logo - Big and Prominent */
+.welcome-logo {
+    width: 200px;
+    height: auto;
+    filter: drop-shadow(0 8px 16px rgba(139, 30, 63, 0.2));
+    transition: transform 0.3s ease;
+}
+
+.welcome-logo:hover {
+    transform: scale(1.05);
+}
+
+/* ============================================
+   CHAT MESSAGES - Glassmorphism
+   ============================================ */
+.cl-message,
+[class*="message"] {
+    background: var(--kerberus-card) !important;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 16px !important;
+    box-shadow: 0 4px 20px -5px rgba(0, 0, 0, 0.08);
+    margin: 0.75rem 0 !important;
+}
+
+/* User Messages */
+[class*="user-message"],
+.user-message {
+    background: linear-gradient(135deg, var(--kerberus-red) 0%, var(--kerberus-red-light) 100%) !important;
+    color: white !important;
+}
+
+/* Assistant Messages */
+[class*="assistant-message"],
+.assistant-message {
+    background: var(--kerberus-card) !important;
+    border-left: 3px solid var(--kerberus-red) !important;
+}
+
+/* ============================================
+   INPUT AREA
+   ============================================ */
+textarea,
+[class*="input"],
+.MuiInputBase-root {
+    background: white !important;
+    border: 2px solid rgba(139, 30, 63, 0.1) !important;
+    border-radius: 12px !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+textarea:focus,
+[class*="input"]:focus,
+.MuiInputBase-root.Mui-focused {
+    border-color: var(--kerberus-red) !important;
+    box-shadow: 0 0 0 3px rgba(139, 30, 63, 0.1) !important;
+    outline: none !important;
+}
+
+/* Send Button */
+button[type="submit"],
+.MuiIconButton-root[aria-label*="send" i],
+[class*="send-button"] {
+    background: linear-gradient(135deg, var(--kerberus-red) 0%, var(--kerberus-red-light) 100%) !important;
+    color: white !important;
+    border-radius: 10px !important;
+    transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+button[type="submit"]:hover,
+.MuiIconButton-root[aria-label*="send" i]:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 15px rgba(139, 30, 63, 0.3) !important;
+}
+
+/* ============================================
+   SIDEBAR / SETTINGS
+   ============================================ */
+[class*="sidebar"],
+[class*="drawer"],
+.MuiDrawer-paper {
+    background: rgba(255, 255, 255, 0.98) !important;
+    backdrop-filter: blur(20px);
+}
+
+/* Switches and Sliders */
+.MuiSwitch-switchBase.Mui-checked {
+    color: var(--kerberus-red) !important;
+}
+
+.MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track {
+    background-color: var(--kerberus-red) !important;
+}
+
+.MuiSlider-thumb {
+    background-color: var(--kerberus-red) !important;
+}
+
+.MuiSlider-track {
+    background-color: var(--kerberus-red) !important;
+}
+
+/* ============================================
+   TYPOGRAPHY ENHANCEMENTS
+   ============================================ */
+h1, h2, h3, h4, h5, h6 {
+    font-weight: 600 !important;
+    color: var(--kerberus-dark) !important;
+}
+
+/* Code blocks */
+code, pre {
+    background: rgba(26, 32, 44, 0.05) !important;
+    border-radius: 6px !important;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+}
+
+/* Links */
+a {
+    color: var(--kerberus-red) !important;
+    text-decoration: none !important;
+    transition: color 0.2s ease !important;
+}
+
+a:hover {
+    color: var(--kerberus-red-light) !important;
+    text-decoration: underline !important;
+}
+
+/* Blockquotes (for search result previews) */
+blockquote {
+    border-left: 3px solid var(--kerberus-red) !important;
+    background: rgba(139, 30, 63, 0.03) !important;
+    padding: 1rem 1.5rem !important;
+    border-radius: 0 8px 8px 0 !important;
+    margin: 1rem 0 !important;
+    font-style: italic;
+    color: var(--kerberus-gray);
+}
+
+/* ============================================
+   RESPONSIVE ADJUSTMENTS
+   ============================================ */
+@media (max-width: 768px) {
+    .welcome-container {
+        flex-direction: column-reverse;
+        text-align: center;
+        padding: 2rem 1.5rem;
+    }
+
+    .welcome-logo {
+        width: 150px;
+        margin-bottom: 1.5rem;
+    }
+
+    .welcome-text h1 {
+        font-size: 2rem !important;
+    }
+
+    header img {
+        max-height: 50px !important;
+    }
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.cl-message,
+[class*="message"] {
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* Loading indicator */
+[class*="loading"],
+[class*="spinner"] {
+    color: var(--kerberus-red) !important;
+}
+
+/* ============================================
+   SCROLLBAR STYLING
+   ============================================ */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(139, 30, 63, 0.3);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(139, 30, 63, 0.5);
+}
