@@ -217,8 +217,8 @@ python scripts/test_search.py
 While built for Switzerland, KERBERUS can be adapted to any civil law jurisdiction with public legal databases:
 
 - 🇩🇪 Germany (bundesgerichtshof.de)
-- �🇷 France (legifrance.gouv.fr)
-- �🇸🇪 Sweden (domstol.se)
+- 🇫🇷 France (legifrance.gouv.fr)
+- 🇸🇪 Sweden (domstol.se)
 - 🇦🇹 Austria (ris.bka.gv.at)
 - 🇧🇪 Belgium (juridat.be)
 - 🇳🇱 Netherlands (rechtspraak.nl)
