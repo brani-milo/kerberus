@@ -57,8 +57,9 @@ I chose to open-source this reference implementation because:
 
 **Infrastructure:**
 - Docker-orchestrated services (Qdrant, PostgreSQL, Redis)
-- Apple Silicon optimized (MPS acceleration)
-- Production deployment ready (Infomaniak)
+- **Auto GPU detection** (CUDA → MPS → CPU fallback)
+- Apple Silicon optimized for local development
+- Production deployment ready (Infomaniak with GPU)
 
 **Advanced RAG Pipeline:**
 - **BGE-M3 embeddings** - Multilingual semantic search (768-dim, 100+ languages)
@@ -230,7 +231,7 @@ Requires replacing scrapers and adapting metadata schema for local court hierarc
 
 | Component | Technology |
 |-----------|-----------|
-| **Embeddings** | BGE-M3 (1024d Dense + Sparse Lexical) |
+| **Embeddings** | BGE-M3 (1024d Dense + Sparse Lexical, auto GPU detection) |
 | **Reranking** | BGE-Reranker-v2-M3 |
 | **Vector DB** | Qdrant (Hybrid Search with RRF) |
 | **Auth DB** | PostgreSQL 15 |

@@ -124,14 +124,15 @@ def init_qdrant_collections():
     print("Creating Qdrant collections...")
 
     # Collection configuration
+    # BGE-M3 produces 1024-dimensional dense vectors
     collections = {
         "codex": {
-            "vector_size": 768,
+            "vector_size": 1024,
             "distance": "Cosine",
             "description": "Swiss legal code (OR, ZGB, StGB, etc.)"
         },
         "library": {
-            "vector_size": 768,
+            "vector_size": 1024,
             "distance": "Cosine",
             "description": "Case law (BGE, cantonal courts)"
         }

@@ -222,18 +222,40 @@ class BGEEmbedder:
         return 1024
 
 
+def get_best_device() -> str:
+    """
+    Auto-detect the best available device for inference.
+
+    Priority: CUDA (NVIDIA GPU) > MPS (Apple Silicon) > CPU
+
+    Returns:
+        Device string: "cuda", "mps", or "cpu"
+    """
+    if torch.cuda.is_available():
+        logger.info(f"CUDA available: {torch.cuda.get_device_name(0)}")
+        return "cuda"
+    elif torch.backends.mps.is_available():
+        logger.info("Apple Silicon MPS available")
+        return "mps"
+    else:
+        logger.info("No GPU detected, using CPU")
+        return "cpu"
+
+
 # Singleton instance (loaded once at startup)
 _embedder_instance: Optional[BGEEmbedder] = None
 
 
-def get_embedder(device: str = "mps") -> BGEEmbedder:
+def get_embedder(device: Optional[str] = None) -> BGEEmbedder:
     """
     Get shared embedder instance (connection pooling).
 
     Args:
-        device: "mps" for Apple Silicon, "cpu" for fallback
+        device: Override device selection. If None, auto-detects best device.
+                Options: "cuda" (NVIDIA), "mps" (Apple Silicon), "cpu"
     """
     global _embedder_instance
     if _embedder_instance is None:
-        _embedder_instance = BGEEmbedder(device=device)
+        selected_device = device or get_best_device()
+        _embedder_instance = BGEEmbedder(device=selected_device)
     return _embedder_instance
