@@ -311,7 +311,7 @@ Bitte formulieren Sie Ihre Frage um oder kontaktieren Sie den Support."""
             try:
                 codex_results = codex_engine.search(
                     enhanced_query,
-                    limit=5,
+                    limit=10,  # Fetch more, Qwen will filter
                     filters=codex_filters if codex_filters else None,
                     multilingual=multilingual
                 )
@@ -322,7 +322,7 @@ Bitte formulieren Sie Ihre Frage um oder kontaktieren Sie den Support."""
             try:
                 library_results = library_engine.search(
                     enhanced_query,
-                    limit=7,
+                    limit=10,  # Fetch more, Qwen will filter
                     filters=library_filters if library_filters else None,
                     multilingual=multilingual
                 )
@@ -371,8 +371,8 @@ Bitte versuchen Sie:
         laws_context, decisions_context, context_meta = pipeline.build_context(
             codex_results=codex_results,
             library_results=library_results,
-            max_laws=5,
-            max_decisions=7,
+            max_laws=10,
+            max_decisions=10,
         )
 
         # ============================================

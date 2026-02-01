@@ -83,8 +83,8 @@ class ChatRequest(BaseModel):
     language: Optional[str] = Field("auto", description="Language: de, fr, it, en, or auto")
     search_scope: Optional[str] = Field("both", description="Search scope: both, laws, decisions")
     multilingual: Optional[bool] = Field(False, description="Enable cross-language search")
-    max_laws: Optional[int] = Field(5, ge=1, le=10)
-    max_decisions: Optional[int] = Field(7, ge=1, le=15)
+    max_laws: Optional[int] = Field(10, ge=1, le=15, description="Max laws to send to LLM (it will filter)")
+    max_decisions: Optional[int] = Field(10, ge=1, le=20, description="Max decisions to send to LLM (it will filter)")
 
     class Config:
         json_schema_extra = {

@@ -64,6 +64,7 @@ class ReformulatorPrompts:
     Purpose:
     - Reiterate user intent clearly
     - Structure the request for Qwen
+    - Instruct to filter sources by relevance
     - NO legal interpretation
     """
 
@@ -77,15 +78,16 @@ RULES:
 - DO NOT add your own legal knowledge
 - ONLY reformulate and structure the request
 - Be clear about what the user wants to know
-- Mention which sources were found
+- Instruct the analyst to FILTER sources and only cite truly relevant ones
 
 OUTPUT FORMAT:
 Write a clear reformulation in the user's language that includes:
 1. What the user wants to know (restated clearly)
 2. What type of answer they need (analysis, comparison, simple answer, etc.)
-3. Brief mention of available sources (X laws, Y decisions found)
+3. Mention that multiple sources were provided but only the RELEVANT ones should be cited
+4. Instruct to ignore sources that don't directly apply to the question
 
-Keep it concise (3-5 sentences max)."""
+Keep it concise (4-6 sentences max)."""
 
     USER_TEMPLATE = """USER'S ORIGINAL QUESTION:
 {query}
@@ -99,6 +101,9 @@ SEARCH RESULTS SUMMARY:
 - Laws found: {law_count}
 - Court decisions found: {decision_count}
 - Main topics: {topics}
+
+IMPORTANT: The search returned many sources, but not all may be relevant.
+Instruct the legal analyst to carefully filter and only cite sources that DIRECTLY address the question.
 
 Reformulate this request clearly for the legal analysis AI. Write in {language_name}."""
 
@@ -162,6 +167,8 @@ Für jeden relevanten Entscheid:
 ⚠️ Diese Analyse ersetzt keine Rechtsberatung. Konsultieren Sie einen Anwalt für Ihren spezifischen Fall.
 
 WICHTIGE REGELN:
+- FILTERE die Quellen: Zitiere NUR die tatsächlich relevanten (typischerweise 3-5 Gesetze, 3-5 Entscheide)
+- IGNORIERE Quellen, die thematisch nicht zur Frage passen
 - Basiere ALLES auf den bereitgestellten Quellen
 - IMMER doppelte Zitate (Übersetzung + Original)
 - IMMER Links zu Fedlex/BGer
@@ -216,6 +223,8 @@ Pour chaque décision pertinente:
 ⚠️ Cette analyse ne remplace pas un conseil juridique. Consultez un avocat pour votre cas spécifique.
 
 RÈGLES IMPORTANTES:
+- FILTREZ les sources: Citez UNIQUEMENT celles qui sont pertinentes (typiquement 3-5 lois, 3-5 décisions)
+- IGNOREZ les sources qui ne correspondent pas à la question
 - Basez TOUT sur les sources fournies
 - TOUJOURS des citations doubles (traduction + original)
 - TOUJOURS des liens vers Fedlex/BGer
@@ -270,6 +279,8 @@ Per ogni decisione pertinente:
 ⚠️ Questa analisi non sostituisce una consulenza legale. Consulti un avvocato per il suo caso specifico.
 
 REGOLE IMPORTANTI:
+- FILTRA le fonti: Cita SOLO quelle realmente pertinenti (tipicamente 3-5 leggi, 3-5 decisioni)
+- IGNORA le fonti che non corrispondono alla domanda
 - Basa TUTTO sulle fonti fornite
 - SEMPRE citazioni doppie (traduzione + originale)
 - SEMPRE link a Fedlex/BGer
@@ -324,6 +335,8 @@ For each relevant decision:
 ⚠️ This analysis does not replace legal advice. Consult a lawyer for your specific case.
 
 IMPORTANT RULES:
+- FILTER sources: Cite ONLY those that are truly relevant (typically 3-5 laws, 3-5 decisions)
+- IGNORE sources that don't match the question
 - Base EVERYTHING on the provided sources
 - ALWAYS dual quotes (translation + original)
 - ALWAYS links to Fedlex/BGer

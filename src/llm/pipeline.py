@@ -217,8 +217,8 @@ class LegalPipeline:
         self,
         codex_results: List[Dict],
         library_results: List[Dict],
-        max_laws: int = 5,
-        max_decisions: int = 7,
+        max_laws: int = 10,
+        max_decisions: int = 10,
     ) -> Tuple[str, str, Dict]:
         """
         Build context strings for Qwen from search results.
