@@ -24,22 +24,95 @@ body,
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
 }
 
-/* Premium Background */
-body {
-    background-color: var(--kerberus-bg) !important;
+/* Premium Background - Override Chainlit's dynamic styles */
+body,
+html,
+#root,
+#root > div,
+#root > div > div,
+.MuiBox-root,
+[class*="main"],
+[class*="Main"],
+[class*="container"],
+[class*="Container"],
+[class*="layout"],
+[class*="Layout"],
+[class*="chat"],
+[class*="Chat"],
+[data-testid],
+main,
+.css-1v1s3p1,
+.css-0 {
+    background-color: #F7FAFC !important;
     background-image:
-        radial-gradient(at 100% 0%, rgba(139, 30, 63, 0.08) 0px, transparent 50%),
-        radial-gradient(at 0% 100%, rgba(44, 82, 130, 0.08) 0px, transparent 50%);
-    background-attachment: fixed;
+        radial-gradient(at 100% 0%, rgba(139, 30, 63, 0.15) 0px, transparent 50%),
+        radial-gradient(at 0% 100%, rgba(44, 82, 130, 0.15) 0px, transparent 50%) !important;
+    background-attachment: fixed !important;
+}
+
+/* Force override any white backgrounds */
+div[style*="background: rgb(255, 255, 255)"],
+div[style*="background-color: rgb(255, 255, 255)"],
+div[style*="background: white"],
+div[style*="background-color: white"],
+div[style*="background:#fff"],
+div[style*="background-color:#fff"] {
+    background-color: #F7FAFC !important;
+    background-image:
+        radial-gradient(at 100% 0%, rgba(139, 30, 63, 0.15) 0px, transparent 50%),
+        radial-gradient(at 0% 100%, rgba(44, 82, 130, 0.15) 0px, transparent 50%) !important;
+}
+
+/* Pseudo-element overlay - Premium WOW effect */
+body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background:
+        /* Top right - Bold red glow */
+        radial-gradient(ellipse 80% 60% at 100% 0%, rgba(139, 30, 63, 0.25) 0%, rgba(139, 30, 63, 0.1) 40%, transparent 70%),
+        /* Bottom left - Bold blue glow */
+        radial-gradient(ellipse 80% 60% at 0% 100%, rgba(44, 82, 130, 0.25) 0%, rgba(44, 82, 130, 0.1) 40%, transparent 70%),
+        /* Center subtle warmth */
+        radial-gradient(ellipse 100% 100% at 50% 50%, rgba(255, 255, 255, 0.8) 0%, transparent 70%),
+        /* Base gradient */
+        linear-gradient(135deg, #F8FAFC 0%, #EDF2F7 50%, #E2E8F0 100%);
+    z-index: -1;
+    pointer-events: none;
+}
+
+/* Additional accent line at top of page */
+body::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg,
+        var(--kerberus-red) 0%,
+        var(--kerberus-red-light) 30%,
+        var(--kerberus-blue) 70%,
+        #4299E1 100%);
+    z-index: 9999;
+    box-shadow: 0 2px 10px rgba(139, 30, 63, 0.3);
 }
 
 /* ============================================
-   HEADER - Big Logo Upper Right
+   HEADER - Premium Glass Effect
    ============================================ */
 header {
-    background: rgba(255, 255, 255, 0.95) !important;
-    backdrop-filter: blur(20px);
-    border-bottom: 2px solid rgba(139, 30, 63, 0.1) !important;
+    background: linear-gradient(135deg,
+        rgba(255, 255, 255, 0.95) 0%,
+        rgba(248, 250, 252, 0.9) 100%) !important;
+    backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid rgba(139, 30, 63, 0.15) !important;
+    box-shadow:
+        0 4px 30px rgba(139, 30, 63, 0.08),
+        0 1px 3px rgba(0, 0, 0, 0.05) !important;
     min-height: 80px !important;
     padding: 0.5rem 1.5rem !important;
 }
@@ -69,32 +142,64 @@ header .MuiTypography-h6 {
 }
 
 /* ============================================
-   WELCOME SCREEN - Prominent Branding
+   WELCOME SCREEN - Premium Branding with WOW
    ============================================ */
 .welcome-container {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 2.5rem 3rem;
-    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 50%, #f0f4f8 100%);
-    border-radius: 20px;
+    padding: 3rem 3.5rem;
+    background:
+        linear-gradient(135deg,
+            rgba(255, 255, 255, 0.98) 0%,
+            rgba(248, 250, 252, 0.95) 50%,
+            rgba(237, 242, 247, 0.9) 100%);
+    border-radius: 24px;
     box-shadow:
-        0 20px 60px -15px rgba(139, 30, 63, 0.15),
-        0 0 0 1px rgba(139, 30, 63, 0.05);
+        0 25px 80px -20px rgba(139, 30, 63, 0.25),
+        0 10px 30px -10px rgba(44, 82, 130, 0.15),
+        0 0 0 1px rgba(139, 30, 63, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8);
     margin-bottom: 2rem;
     position: relative;
     overflow: hidden;
+    backdrop-filter: blur(10px);
 }
 
-/* Decorative accent line */
+/* Decorative accent line - Animated gradient */
 .welcome-container::before {
     content: '';
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
-    height: 4px;
-    background: linear-gradient(90deg, var(--kerberus-red), var(--kerberus-blue));
+    height: 5px;
+    background: linear-gradient(90deg,
+        var(--kerberus-red) 0%,
+        var(--kerberus-red-light) 25%,
+        var(--kerberus-blue) 75%,
+        #4299E1 100%);
+    background-size: 200% 100%;
+    animation: shimmer 3s ease-in-out infinite;
+}
+
+/* Subtle corner accents */
+.welcome-container::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 200px;
+    height: 200px;
+    background: radial-gradient(circle at 100% 100%,
+        rgba(139, 30, 63, 0.08) 0%,
+        transparent 70%);
+    pointer-events: none;
+}
+
+@keyframes shimmer {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
 }
 
 .welcome-text h1 {
@@ -132,66 +237,107 @@ header .MuiTypography-h6 {
 }
 
 /* ============================================
-   CHAT MESSAGES - Glassmorphism
+   CHAT MESSAGES - Premium Glass Cards
    ============================================ */
 .cl-message,
 [class*="message"] {
-    background: var(--kerberus-card) !important;
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    border-radius: 16px !important;
-    box-shadow: 0 4px 20px -5px rgba(0, 0, 0, 0.08);
-    margin: 0.75rem 0 !important;
+    background: rgba(255, 255, 255, 0.85) !important;
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: 18px !important;
+    box-shadow:
+        0 8px 32px -8px rgba(139, 30, 63, 0.12),
+        0 4px 16px -4px rgba(0, 0, 0, 0.06),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    margin: 1rem 0 !important;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-/* User Messages */
+.cl-message:hover,
+[class*="message"]:hover {
+    transform: translateY(-2px);
+    box-shadow:
+        0 12px 40px -8px rgba(139, 30, 63, 0.18),
+        0 6px 20px -4px rgba(0, 0, 0, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* User Messages - Bold gradient */
 [class*="user-message"],
 .user-message {
-    background: linear-gradient(135deg, var(--kerberus-red) 0%, var(--kerberus-red-light) 100%) !important;
+    background: linear-gradient(135deg,
+        var(--kerberus-red) 0%,
+        var(--kerberus-red-light) 100%) !important;
     color: white !important;
+    border: none !important;
+    box-shadow:
+        0 8px 32px -8px rgba(139, 30, 63, 0.4),
+        0 4px 16px -4px rgba(139, 30, 63, 0.2);
 }
 
-/* Assistant Messages */
+/* Assistant Messages - Subtle accent */
 [class*="assistant-message"],
 .assistant-message {
-    background: var(--kerberus-card) !important;
-    border-left: 3px solid var(--kerberus-red) !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+    border-left: 4px solid var(--kerberus-red) !important;
+    border-top: none !important;
+    border-right: none !important;
+    border-bottom: none !important;
 }
 
 /* ============================================
-   INPUT AREA
+   INPUT AREA - Premium Glass
    ============================================ */
 textarea,
 [class*="input"],
 .MuiInputBase-root {
-    background: white !important;
-    border: 2px solid rgba(139, 30, 63, 0.1) !important;
-    border-radius: 12px !important;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+    border: 2px solid rgba(139, 30, 63, 0.12) !important;
+    border-radius: 16px !important;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s ease !important;
+    box-shadow:
+        0 4px 20px -5px rgba(0, 0, 0, 0.05),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 textarea:focus,
 [class*="input"]:focus,
 .MuiInputBase-root.Mui-focused {
     border-color: var(--kerberus-red) !important;
-    box-shadow: 0 0 0 3px rgba(139, 30, 63, 0.1) !important;
+    box-shadow:
+        0 0 0 4px rgba(139, 30, 63, 0.12),
+        0 8px 30px -5px rgba(139, 30, 63, 0.15) !important;
     outline: none !important;
 }
 
-/* Send Button */
+/* Send Button - Bold and Premium */
 button[type="submit"],
 .MuiIconButton-root[aria-label*="send" i],
 [class*="send-button"] {
-    background: linear-gradient(135deg, var(--kerberus-red) 0%, var(--kerberus-red-light) 100%) !important;
+    background: linear-gradient(135deg,
+        var(--kerberus-red) 0%,
+        var(--kerberus-red-light) 100%) !important;
     color: white !important;
-    border-radius: 10px !important;
-    transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+    border-radius: 14px !important;
+    border: none !important;
+    transition: all 0.3s ease !important;
+    box-shadow:
+        0 4px 15px rgba(139, 30, 63, 0.3),
+        0 2px 5px rgba(139, 30, 63, 0.2);
 }
 
 button[type="submit"]:hover,
 .MuiIconButton-root[aria-label*="send" i]:hover {
-    transform: scale(1.05);
-    box-shadow: 0 4px 15px rgba(139, 30, 63, 0.3) !important;
+    transform: translateY(-2px) scale(1.02);
+    box-shadow:
+        0 8px 25px rgba(139, 30, 63, 0.4),
+        0 4px 10px rgba(139, 30, 63, 0.3) !important;
+}
+
+button[type="submit"]:active,
+.MuiIconButton-root[aria-label*="send" i]:active {
+    transform: translateY(0) scale(0.98);
 }
 
 /* ============================================
