@@ -174,6 +174,12 @@ This ensures recent, authoritative precedents surface first while maintaining se
   - Traffic light consistency indicator (CONSISTENT/MIXED/DIVERGENT)
   - Links to Fedlex and BGer sources
   - Risk assessment and practical guidance
+- **FastAPI REST API**
+  - Bearer token authentication
+  - Search endpoints (laws, decisions, combined)
+  - Chat endpoint with streaming support (SSE)
+  - Rate limiting (50/hour, 300/day)
+  - OpenAPI documentation at `/docs`
 
 ## 🛠️ Usage
 
@@ -207,14 +213,32 @@ Test the Hybrid Search Engine:
 python scripts/test_search.py
 ```
 
+### **REST API**
+Start the FastAPI server:
+```bash
+# Development (with hot reload)
+make api
+
+# Production
+make api-prod
+```
+
+API endpoints available at `http://localhost:8000`:
+- `POST /auth/register` - Register new user
+- `POST /auth/login` - Get access token
+- `POST /search` - Search laws and decisions
+- `POST /chat` - Full legal analysis
+- `POST /chat/stream` - Streaming analysis (SSE)
+- `GET /docs` - OpenAPI documentation
+
 ## 🎥 Demo
 
 **Coming Soon:** Video walkthrough and hosted demo
 
 ### **🚧 In Progress**
-- REST API layer (FastAPI)
 - PII detection and scrubbing (Presidio)
 - Production deployment on Infomaniak
+- Embedding pipeline (populate Qdrant with parsed data)
 
 ### **🔜 Next**
 - Automated Document Review (AI-driven analysis of document sets at scale)
