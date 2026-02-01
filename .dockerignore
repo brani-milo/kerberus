@@ -1,0 +1,56 @@
+# Environment and secrets - NEVER include in image
+.env
+.env.local
+.env.production
+*.pem
+*.key
+secrets/
+
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Local data (use volumes instead)
+data/qdrant_storage/
+data/redis_data/
+data/postgres_data/
+data/dossier/
+
+# Test files
+tests/
+*.test.py
+
+# Documentation
+docs/
+*.md
+!chainlit.md
+
+# Claude/AI
+.claude/
