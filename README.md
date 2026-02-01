@@ -61,13 +61,23 @@ I chose to open-source this reference implementation because:
 - Apple Silicon optimized for local development
 - Production deployment ready (Infomaniak with GPU)
 
+**Three-Stage LLM Pipeline:**
+```
+User Query → Mistral 1 (Guard) → Search → Mistral 2 (Reformulate) → Qwen (Analyze)
+```
+- **Stage 1: Guard & Enhance** - Security check + query optimization (Mistral)
+- **Stage 2: Search & Rerank** - Hybrid retrieval + full document fetch
+- **Stage 3: Reformulate** - Structure query for legal analysis (Mistral)
+- **Stage 4: Legal Analysis** - Full analysis with dual-language citations (Qwen)
+
 **Advanced RAG Pipeline:**
-- **BGE-M3 embeddings** - Multilingual semantic search (768-dim, 100+ languages)
+- **BGE-M3 embeddings** - Multilingual semantic search (1024-dim, 100+ languages)
 - **BGE-Reranker-v2-M3** - Cross-encoder precision ranking
 - **Recency weighting** - Recent precedents scored higher
 - **Authority weighting** - Supreme Court (BGE/ATF) cases prioritized
 - **MMR algorithm** - Eliminates redundant results while maintaining relevance
 - **Triad search** - Parallel search across laws, case law, and user documents
+- **Full document retrieval** - When a chunk matches, fetches complete decision for context
 
 **Cost Optimization:**
 
@@ -157,6 +167,13 @@ This ensures recent, authoritative precedents surface first while maintaining se
   - Dual-collection search (Laws + Case Law)
   - Multilingual mode toggle for cross-language queries
   - Real-time search with filters (year, language, scope)
+- **Three-Stage LLM Pipeline**
+  - Mistral 1: Guard & Enhance (security + query optimization)
+  - Mistral 2: Query Reformulator (structures request for Qwen)
+  - Qwen: Full Legal Analysis with dual-language citations
+  - Traffic light consistency indicator (CONSISTENT/MIXED/DIVERGENT)
+  - Links to Fedlex and BGer sources
+  - Risk assessment and practical guidance
 
 ## 🛠️ Usage
 
@@ -197,12 +214,12 @@ python scripts/test_search.py
 ### **🚧 In Progress**
 - REST API layer (FastAPI)
 - PII detection and scrubbing (Presidio)
+- Production deployment on Infomaniak
 
 ### **🔜 Next**
-- Qwen3-VL API integration (LLM responses)
 - Automated Document Review (AI-driven analysis of document sets at scale)
-- Production deployment on Infomaniak
 - Firm management (shared dossiers, role-based access)
+- Token usage billing and rate limiting
 
 ### **🔮 Future**
 - Citation graph analysis (identify landmark cases)
