@@ -2,7 +2,11 @@
 KERBERUS Chainlit Frontend
 
 Sovereign AI Legal Assistant for Swiss Law
-Powered by BGE-M3 Hybrid Search + Mistral LLM
+Three-Stage LLM Pipeline:
+1. Mistral 1: Guard & Enhance
+2. Search + Rerank
+3. Mistral 2: Query Reformulator
+4. Qwen: Full Legal Analysis
 """
 
 import chainlit as cl
@@ -13,31 +17,70 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.search.hybrid_search import HybridSearchEngine
-from src.llm import LLMClient, ContextAssembler, LegalPrompts
+from src.llm import get_pipeline, ContextAssembler
 
 # Global instances (initialized lazily)
 codex_engine = None
 library_engine = None
-llm_client = None
+pipeline = None
 context_assembler = None
+
+
+def get_consistency_indicator(consistency: str, confidence: str) -> str:
+    """
+    Generate traffic light indicator for response consistency.
+
+    Returns:
+        Emoji indicator with label
+    """
+    indicators = {
+        "CONSISTENT": "🟢 Einheitliche Rechtslage",
+        "MIXED": "🟡 Gemischte Rechtslage",
+        "DIVERGENT": "🔴 Widersprüchliche Rechtslage",
+    }
+
+    confidence_labels = {
+        "high": "hohe Konfidenz",
+        "medium": "mittlere Konfidenz",
+        "low": "niedrige Konfidenz",
+    }
+
+    indicator = indicators.get(consistency, "🟡 Gemischte Rechtslage")
+    conf = confidence_labels.get(confidence, "mittlere Konfidenz")
+
+    return f"{indicator} ({conf})"
 
 
 @cl.on_chat_start
 async def on_chat_start():
-    global codex_engine, library_engine, llm_client, context_assembler
+    global codex_engine, library_engine, pipeline, context_assembler
 
     # Initialize search engines lazily
     if codex_engine is None:
         codex_engine = HybridSearchEngine(collection_name="codex")
     if library_engine is None:
         library_engine = HybridSearchEngine(collection_name="library")
-    if llm_client is None:
-        llm_client = LLMClient()
+    if pipeline is None:
+        pipeline = get_pipeline()
     if context_assembler is None:
         context_assembler = ContextAssembler()
 
     # Initialize chat history
     cl.user_session.set("chat_history", [])
+
+    # Welcome message
+    await cl.Message(
+        content="""**Willkommen bei KERBERUS** 🛡️
+
+Ich bin Ihr KI-Rechtsassistent für Schweizer Recht. Stellen Sie mir Ihre rechtlichen Fragen auf Deutsch, Französisch oder Italienisch.
+
+**Beispiele:**
+- "Unter welchen Umständen ist eine fristlose Kündigung gerechtfertigt?"
+- "Quelles sont les conditions du divorce en Suisse?"
+- "Cosa dice la legge sul licenziamento immediato?"
+
+_Die Antworten werden mit Gesetzeszitaten und Gerichtsentscheiden belegt._"""
+    ).send()
 
     # Set up filters as settings
     settings = await cl.ChatSettings(
@@ -52,7 +95,7 @@ async def on_chat_start():
                 id="multilingual",
                 label="Cross-Language Mode",
                 initial=False,
-                description="Enable for conceptual queries across DE/FR/IT (e.g., 'what is unfair dismissal'). Keep OFF for exact citations (e.g., 'Art. 337 OR', 'BGE 119 III 63')."
+                description="Enable for conceptual queries across DE/FR/IT."
             ),
             cl.input_widget.Switch(
                 id="show_sources",
@@ -168,7 +211,7 @@ def format_sources_collapsible(codex_results: list, library_results: list) -> st
 
     if codex_results:
         parts.append("### Gesetze (Codex)\n")
-        for i, res in enumerate(codex_results[:3], 1):
+        for i, res in enumerate(codex_results[:5], 1):
             parts.append(format_law_result(
                 res.get('payload', {}),
                 res.get('score', 0),
@@ -183,7 +226,7 @@ def format_sources_collapsible(codex_results: list, library_results: list) -> st
             payload = res.get('payload', {})
             decision_id = payload.get('decision_id', '')
             base_id = decision_id.split('_chunk_')[0] if '_chunk_' in str(decision_id) else decision_id
-            if base_id not in seen and rank <= 3:
+            if base_id not in seen and rank <= 7:
                 seen.add(base_id)
                 parts.append(format_decision_result(payload, res.get('score', 0), rank))
                 rank += 1
@@ -198,7 +241,7 @@ async def setup_agent(settings):
 
 @cl.on_message
 async def on_message(message: cl.Message):
-    global codex_engine, library_engine, llm_client, context_assembler
+    global codex_engine, library_engine, pipeline, context_assembler
 
     settings = cl.user_session.get("filters") or {}
     chat_history = cl.user_session.get("chat_history") or []
@@ -219,11 +262,42 @@ async def on_message(message: cl.Message):
 
     codex_filters = base_filters.copy()
 
-    # Show searching message
+    # Prepare response message
     msg = cl.Message(content="")
     await msg.send()
 
     try:
+        # ============================================
+        # STAGE 1: Guard & Enhance (Mistral 1)
+        # ============================================
+        await cl.Message(content="_🛡️ Sicherheitsprüfung und Anfrage-Optimierung..._").send()
+
+        guard_result = pipeline.guard_and_enhance(message.content)
+
+        # Check if blocked
+        if guard_result.status == "BLOCKED":
+            msg.content = f"""⚠️ **Anfrage blockiert**
+
+{guard_result.block_reason}
+
+Bitte formulieren Sie Ihre Frage um oder kontaktieren Sie den Support."""
+            await msg.update()
+            return
+
+        # Log enhancement info
+        if guard_result.enhanced_query != guard_result.original_query:
+            await cl.Message(
+                content=f"_Enhanced: {guard_result.enhanced_query[:100]}..._",
+                author="system"
+            ).send()
+
+        detected_language = guard_result.detected_language
+        enhanced_query = guard_result.enhanced_query
+        legal_concepts = guard_result.legal_concepts
+
+        # ============================================
+        # STAGE 2: Search
+        # ============================================
         search_scope = settings.get("search_scope", "Both")
         multilingual = settings.get("multilingual", False)
         show_sources = settings.get("show_sources", True)
@@ -231,13 +305,12 @@ async def on_message(message: cl.Message):
         codex_results = []
         library_results = []
 
-        # Step 1: Search
-        await cl.Message(content="_Searching legal database..._").send()
+        await cl.Message(content="_🔍 Durchsuche Rechtsdatenbank..._").send()
 
         if search_scope in ["Both", "Laws (Codex)"]:
             try:
                 codex_results = codex_engine.search(
-                    message.content,
+                    enhanced_query,
                     limit=5,
                     filters=codex_filters if codex_filters else None,
                     multilingual=multilingual
@@ -248,8 +321,8 @@ async def on_message(message: cl.Message):
         if search_scope in ["Both", "Decisions (Library)"]:
             try:
                 library_results = library_engine.search(
-                    message.content,
-                    limit=5,
+                    enhanced_query,
+                    limit=7,
                     filters=library_filters if library_filters else None,
                     multilingual=multilingual
                 )
@@ -258,61 +331,119 @@ async def on_message(message: cl.Message):
 
         # Check if we found anything
         if not codex_results and not library_results:
-            msg.content = "Keine relevanten Rechtsquellen gefunden. Bitte versuchen Sie eine andere Suchanfrage."
+            msg.content = """Keine relevanten Rechtsquellen gefunden.
+
+Bitte versuchen Sie:
+- Eine andere Formulierung
+- Allgemeinere Begriffe
+- Den Cross-Language Modus zu aktivieren"""
             await msg.update()
             return
 
-        # Step 2: Show sources (if enabled)
+        # Show sources (if enabled)
         if show_sources:
             sources_text = format_sources_collapsible(codex_results, library_results)
-            sources_msg = cl.Message(content=f"**Gefundene Quellen:**\n\n{sources_text}")
+            sources_msg = cl.Message(content=f"**📚 Gefundene Quellen:**\n\n{sources_text}")
             await sources_msg.send()
 
-        # Step 3: Assemble context (fetch full documents)
-        await cl.Message(content="_Analysiere Rechtsquellen..._").send()
+        # ============================================
+        # STAGE 3: Reformulate (Mistral 2)
+        # ============================================
+        await cl.Message(content="_📝 Strukturiere Anfrage..._").send()
 
-        context, context_meta = context_assembler.assemble(
-            codex_results=codex_results,
-            library_results=library_results,
-            fetch_full_documents=True
+        # Extract topics from legal concepts
+        topics = legal_concepts if legal_concepts else ["general legal question"]
+
+        reformulated_query, reformulate_response = pipeline.reformulate(
+            original_query=message.content,
+            enhanced_query=enhanced_query,
+            language=detected_language,
+            law_count=len(codex_results),
+            decision_count=len(library_results),
+            topics=topics,
         )
 
-        # Step 4: Generate LLM response with streaming
+        # ============================================
+        # STAGE 4: Build Context
+        # ============================================
+        await cl.Message(content="_📄 Lade vollständige Dokumente..._").send()
+
+        laws_context, decisions_context, context_meta = pipeline.build_context(
+            codex_results=codex_results,
+            library_results=library_results,
+            max_laws=5,
+            max_decisions=7,
+        )
+
+        # ============================================
+        # STAGE 5: Legal Analysis (Qwen)
+        # ============================================
         msg.content = ""
         await msg.update()
+
+        await cl.Message(content="_⚖️ Generiere rechtliche Analyse..._").send()
 
         # Stream the response
         full_response = []
         try:
-            for chunk in llm_client.chat_stream(
-                query=message.content,
-                context=context,
-                chat_history=chat_history[-10:] if chat_history else None,  # Last 5 turns (10 messages)
-            ):
+            stream_gen = pipeline.analyze(
+                reformulated_query=reformulated_query,
+                laws_context=laws_context,
+                decisions_context=decisions_context,
+                language=detected_language,
+            )
+
+            for chunk in stream_gen:
                 full_response.append(chunk)
                 msg.content = "".join(full_response)
                 await msg.stream_token(chunk)
 
+            # Get final response metadata
+            try:
+                final_response = stream_gen.send(None)
+            except StopIteration as e:
+                final_response = e.value
+
         except Exception as e:
-            msg.content = f"**Fehler bei der Antwortgenerierung:** {str(e)}\n\nDie Suche war erfolgreich. Bitte versuchen Sie es erneut."
+            msg.content = f"""**Fehler bei der Analyse:** {str(e)}
+
+Die Suche war erfolgreich. Bitte versuchen Sie es erneut."""
             await msg.update()
             return
 
         # Finalize message
         await msg.update()
 
-        # Update chat history
-        chat_history.append({"role": "user", "content": message.content})
-        chat_history.append({"role": "assistant", "content": "".join(full_response)})
-        cl.user_session.set("chat_history", chat_history)
+        # Parse consistency from response
+        response_text = "".join(full_response)
+        consistency, confidence = pipeline.parse_consistency(response_text)
 
-        # Log token usage (for monitoring)
-        if hasattr(llm_client, '_last_response'):
-            usage = llm_client._last_response
+        # Show consistency indicator
+        indicator = get_consistency_indicator(consistency, confidence)
+        await cl.Message(
+            content=f"**{indicator}**",
+            author="system"
+        ).send()
+
+        # Show token usage (if available)
+        if final_response:
+            total_tokens = final_response.total_tokens
+            cost = final_response.cost_chf
+
+            # Add costs from other stages
+            guard_cost = guard_result.response.cost_chf if guard_result.response else 0
+            reformulate_cost = reformulate_response.cost_chf if reformulate_response else 0
+            total_cost = cost + guard_cost + reformulate_cost
+
             await cl.Message(
-                content=f"_Tokens: {usage.total_tokens} | Cost: CHF {usage.cost_chf:.4f}_",
+                content=f"_Tokens: {total_tokens} | Kosten: CHF {total_cost:.4f}_",
                 author="system"
             ).send()
+
+        # Update chat history
+        chat_history.append({"role": "user", "content": message.content})
+        chat_history.append({"role": "assistant", "content": response_text})
+        cl.user_session.set("chat_history", chat_history[-10:])  # Keep last 5 turns
 
     except Exception as e:
         msg.content = f"**Error:** {str(e)}"

@@ -12,7 +12,7 @@ from typing import List, Dict, Optional, Tuple
 from collections import defaultdict
 
 from ..database.vector_db import QdrantManager
-from .prompts import LegalPrompts
+from .prompts import LegalAnalysisPrompts
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class ContextAssembler:
             full_texts = {}
 
         # Format context
-        context = LegalPrompts.format_full_context(laws, decisions, full_texts)
+        context = LegalAnalysisPrompts.format_full_context(laws, decisions, full_texts)
 
         # Truncate if too long
         if len(context) > self.max_context_chars:
