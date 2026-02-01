@@ -1,7 +1,11 @@
 """
 Chat/Query Endpoints.
 
-Provides the main legal analysis endpoint using the three-stage LLM pipeline.
+Provides the main legal analysis endpoint using the four-stage pipeline:
+1. Guard & Enhance (Mistral)
+2. TriadSearch (Hybrid + MMR + Rerank)
+3. Reformulate (Mistral)
+4. Analyze (Qwen)
 """
 import time
 import logging
@@ -18,32 +22,23 @@ from ..models import (
 )
 from ..deps import get_current_user, check_rate_limit, get_db
 from ...llm import get_pipeline, ContextAssembler
-from ...search.hybrid_search import HybridSearchEngine
+from ...search.triad_search import TriadSearch
 from ...database.auth_db import AuthDB
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 # Lazy-initialized components
-_codex_engine: Optional[HybridSearchEngine] = None
-_library_engine: Optional[HybridSearchEngine] = None
+_triad_search: Optional[TriadSearch] = None
 _context_assembler: Optional[ContextAssembler] = None
 
 
-def get_codex_engine() -> HybridSearchEngine:
-    """Get codex (laws) search engine."""
-    global _codex_engine
-    if _codex_engine is None:
-        _codex_engine = HybridSearchEngine(collection_name="codex")
-    return _codex_engine
-
-
-def get_library_engine() -> HybridSearchEngine:
-    """Get library (decisions) search engine."""
-    global _library_engine
-    if _library_engine is None:
-        _library_engine = HybridSearchEngine(collection_name="library")
-    return _library_engine
+def get_triad_search() -> TriadSearch:
+    """Get TriadSearch engine (Hybrid + MMR + Rerank)."""
+    global _triad_search
+    if _triad_search is None:
+        _triad_search = TriadSearch()
+    return _triad_search
 
 
 def get_context_assembler() -> ContextAssembler:
@@ -72,9 +67,9 @@ async def chat(
     """
     Submit a legal question and receive a comprehensive analysis.
 
-    Uses the three-stage LLM pipeline:
+    Uses the four-stage pipeline:
     1. Guard & Enhance (Mistral) - Security + query optimization
-    2. Search & Rerank - Find relevant laws and decisions
+    2. TriadSearch - Hybrid + MMR + Rerank
     3. Reformulate (Mistral) - Structure for analysis
     4. Analyze (Qwen) - Full legal analysis with citations
     """
@@ -82,8 +77,7 @@ async def chat(
 
     # Get pipeline and components
     pipeline = get_pipeline()
-    codex_engine = get_codex_engine()
-    library_engine = get_library_engine()
+    triad = get_triad_search()
 
     # ============================================
     # STAGE 1: Guard & Enhance
@@ -112,39 +106,39 @@ async def chat(
         detected_language = chat_request.language
 
     # ============================================
-    # STAGE 2: Search
+    # STAGE 2: TriadSearch (Hybrid + MMR + Rerank)
     # ============================================
-    codex_results = []
-    library_results = []
-
     # Build filters
     filters = {}
     if detected_language and detected_language != "auto":
         filters["language"] = detected_language
 
-    # Search laws
-    if chat_request.search_scope in ["both", "laws"]:
-        try:
-            codex_results = codex_engine.search(
-                query=enhanced_query,
-                limit=chat_request.max_laws,
-                filters=filters if filters else None,
-                multilingual=chat_request.multilingual,
-            )
-        except Exception as e:
-            logger.error(f"Codex search failed: {e}")
+    try:
+        search_results = await triad.search(
+            query=enhanced_query,
+            user_id=None,
+            firm_id=None,
+            filters=filters if filters else None,
+            top_k=chat_request.max_laws  # Use as general limit
+        )
+    except Exception as e:
+        logger.error(f"TriadSearch failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Search failed",
+        )
 
-    # Search decisions
+    # Extract results based on scope
+    codex_results = []
+    library_results = []
+
+    if chat_request.search_scope in ["both", "laws"]:
+        codex_data = search_results.get('codex', {})
+        codex_results = codex_data.get('results', [])
+
     if chat_request.search_scope in ["both", "decisions"]:
-        try:
-            library_results = library_engine.search(
-                query=enhanced_query,
-                limit=chat_request.max_decisions,
-                filters=filters if filters else None,
-                multilingual=chat_request.multilingual,
-            )
-        except Exception as e:
-            logger.error(f"Library search failed: {e}")
+        library_data = search_results.get('library', {})
+        library_results = library_data.get('results', [])
 
     # Check if we found anything
     if not codex_results and not library_results:
@@ -175,10 +169,20 @@ async def chat(
     # ============================================
     # STAGE 4: Build Context & Analyze
     # ============================================
+    # Convert reranked results to standard format
+    codex_for_context = [
+        {"id": r.get("id"), "score": r.get("final_score", r.get("score", 0)), "payload": r.get("payload", {})}
+        for r in codex_results
+    ]
+    library_for_context = [
+        {"id": r.get("id"), "score": r.get("final_score", r.get("score", 0)), "payload": r.get("payload", {})}
+        for r in library_results
+    ]
+
     try:
         laws_context, decisions_context, context_meta = pipeline.build_context(
-            codex_results=codex_results,
-            library_results=library_results,
+            codex_results=codex_for_context,
+            library_results=library_for_context,
             max_laws=chat_request.max_laws,
             max_decisions=chat_request.max_decisions,
         )
@@ -222,7 +226,7 @@ async def chat(
             citation=f"{abbrev} Art. {art_num}" if abbrev else f"SR {sr_num}",
             language=payload.get("language", "de"),
             url=f"https://www.fedlex.admin.ch/eli/cc/{sr_num}/de" if sr_num else None,
-            relevance_score=result.get("score", 0.0),
+            relevance_score=result.get("final_score", result.get("score", 0.0)),
         ))
 
     for result in library_results:
@@ -241,8 +245,8 @@ async def chat(
             type="decision",
             citation=citation,
             language=payload.get("language", "de"),
-            url=None,  # Could add BGer URL builder
-            relevance_score=result.get("score", 0.0),
+            url=None,
+            relevance_score=result.get("final_score", result.get("score", 0.0)),
         ))
 
     # Calculate token usage
@@ -267,7 +271,7 @@ async def chat(
             user_id=str(user["user_id"]),
             usage_record={
                 "model": "pipeline",
-                "input_tokens": total_tokens // 2,  # Rough estimate
+                "input_tokens": total_tokens // 2,
                 "output_tokens": total_tokens // 2,
                 "cost_chf": total_cost,
                 "operation": "chat",
@@ -287,6 +291,11 @@ async def chat(
         token_usage={
             "total_tokens": total_tokens,
             "total_cost_chf": total_cost,
+            "search_confidence": {
+                "codex": search_results.get('codex', {}).get('confidence', 'NONE'),
+                "library": search_results.get('library', {}).get('confidence', 'NONE'),
+                "overall": search_results.get('overall_confidence', 'NONE'),
+            },
             "stages": {
                 "guard": guard_result.response.total_tokens if guard_result.response else 0,
                 "reformulate": reformulate_response.total_tokens if reformulate_response else 0,
@@ -313,8 +322,7 @@ async def chat_stream(
         start_time = time.time()
 
         pipeline = get_pipeline()
-        codex_engine = get_codex_engine()
-        library_engine = get_library_engine()
+        triad = get_triad_search()
 
         # Stage 1: Guard & Enhance
         yield f"data: {{'stage': 'guard', 'status': 'processing'}}\n\n"
@@ -331,33 +339,27 @@ async def chat_stream(
 
         yield f"data: {{'stage': 'guard', 'status': 'complete', 'language': '{guard_result.detected_language}'}}\n\n"
 
-        # Stage 2: Search
-        yield f"data: {{'stage': 'search', 'status': 'processing'}}\n\n"
+        # Stage 2: TriadSearch
+        yield f"data: {{'stage': 'search', 'status': 'processing', 'method': 'hybrid+mmr+rerank'}}\n\n"
 
-        codex_results = []
-        library_results = []
+        try:
+            search_results = await triad.search(
+                query=guard_result.enhanced_query,
+                user_id=None,
+                firm_id=None,
+                filters=None,
+                top_k=10
+            )
+        except Exception as e:
+            yield f"data: {{'error': 'Search failed: {str(e)}'}}\n\n"
+            return
 
-        if chat_request.search_scope in ["both", "laws"]:
-            try:
-                codex_results = codex_engine.search(
-                    query=guard_result.enhanced_query,
-                    limit=chat_request.max_laws,
-                    multilingual=chat_request.multilingual,
-                )
-            except Exception as e:
-                logger.error(f"Codex search failed: {e}")
+        codex_results = search_results.get('codex', {}).get('results', [])
+        library_results = search_results.get('library', {}).get('results', [])
+        codex_conf = search_results.get('codex', {}).get('confidence', 'NONE')
+        library_conf = search_results.get('library', {}).get('confidence', 'NONE')
 
-        if chat_request.search_scope in ["both", "decisions"]:
-            try:
-                library_results = library_engine.search(
-                    query=guard_result.enhanced_query,
-                    limit=chat_request.max_decisions,
-                    multilingual=chat_request.multilingual,
-                )
-            except Exception as e:
-                logger.error(f"Library search failed: {e}")
-
-        yield f"data: {{'stage': 'search', 'status': 'complete', 'laws': {len(codex_results)}, 'decisions': {len(library_results)}}}\n\n"
+        yield f"data: {{'stage': 'search', 'status': 'complete', 'laws': {len(codex_results)}, 'decisions': {len(library_results)}, 'codex_confidence': '{codex_conf}', 'library_confidence': '{library_conf}'}}\n\n"
 
         if not codex_results and not library_results:
             yield f"data: {{'error': 'No relevant sources found'}}\n\n"
@@ -383,10 +385,19 @@ async def chat_stream(
         # Stage 4: Build context
         yield f"data: {{'stage': 'context', 'status': 'processing'}}\n\n"
 
+        codex_for_context = [
+            {"id": r.get("id"), "score": r.get("final_score", 0), "payload": r.get("payload", {})}
+            for r in codex_results
+        ]
+        library_for_context = [
+            {"id": r.get("id"), "score": r.get("final_score", 0), "payload": r.get("payload", {})}
+            for r in library_results
+        ]
+
         try:
             laws_context, decisions_context, _ = pipeline.build_context(
-                codex_results=codex_results,
-                library_results=library_results,
+                codex_results=codex_for_context,
+                library_results=library_for_context,
             )
         except Exception as e:
             yield f"data: {{'error': 'Context building failed: {str(e)}'}}\n\n"
@@ -408,11 +419,9 @@ async def chat_stream(
             full_response = []
             for chunk in stream_gen:
                 full_response.append(chunk)
-                # Escape for JSON
                 escaped_chunk = chunk.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
                 yield f"data: {{'stage': 'analyze', 'chunk': \"{escaped_chunk}\"}}\n\n"
 
-            # Get final response
             try:
                 final_response = stream_gen.send(None)
             except StopIteration as e:

@@ -2,39 +2,32 @@
 Search Endpoints.
 
 Provides search functionality for laws and court decisions.
+Uses TriadSearch with Hybrid + MMR + Reranking.
 """
 import time
+import asyncio
 import logging
 from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 
 from ..models import SearchRequest, SearchResponse, SearchResult, ErrorResponse
-from ..deps import get_current_user, check_rate_limit, get_processing_time
-from ...search.hybrid_search import HybridSearchEngine
+from ..deps import get_current_user, check_rate_limit
+from ...search.triad_search import TriadSearch
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/search", tags=["Search"])
 
-# Lazy-initialized search engines
-_codex_engine: Optional[HybridSearchEngine] = None
-_library_engine: Optional[HybridSearchEngine] = None
+# Lazy-initialized search engine
+_triad_search: Optional[TriadSearch] = None
 
 
-def get_codex_engine() -> HybridSearchEngine:
-    """Get codex (laws) search engine."""
-    global _codex_engine
-    if _codex_engine is None:
-        _codex_engine = HybridSearchEngine(collection_name="codex")
-    return _codex_engine
-
-
-def get_library_engine() -> HybridSearchEngine:
-    """Get library (decisions) search engine."""
-    global _library_engine
-    if _library_engine is None:
-        _library_engine = HybridSearchEngine(collection_name="library")
-    return _library_engine
+def get_triad_search() -> TriadSearch:
+    """Get TriadSearch engine (Hybrid + MMR + Rerank)."""
+    global _triad_search
+    if _triad_search is None:
+        _triad_search = TriadSearch()
+    return _triad_search
 
 
 @router.post(
@@ -53,11 +46,14 @@ async def search(
     """
     Search laws and court decisions.
 
-    Supports hybrid search (semantic + lexical) with optional filters.
+    Uses TriadSearch pipeline:
+    1. Hybrid search (dense + sparse with RRF)
+    2. MMR diversification
+    3. Cross-encoder reranking
     """
     start_time = time.time()
 
-    results = []
+    triad = get_triad_search()
 
     # Build filters
     filters = {}
@@ -69,52 +65,47 @@ async def search(
             "max": search_request.year_max or 2030,
         }
 
-    # Search codex (laws)
-    if search_request.collection in ["codex", "both"]:
-        try:
-            codex_engine = get_codex_engine()
-            codex_results = codex_engine.search(
-                query=search_request.query,
-                limit=search_request.limit,
-                filters=filters if filters else None,
-                multilingual=search_request.multilingual,
-            )
+    try:
+        # Execute triad search
+        search_results = await triad.search(
+            query=search_request.query,
+            user_id=None,
+            firm_id=None,
+            filters=filters if filters else None,
+            top_k=search_request.limit
+        )
 
-            for r in codex_results:
+        results = []
+
+        # Collect codex results
+        if search_request.collection in ["codex", "both"]:
+            codex_data = search_results.get('codex', {})
+            for r in codex_data.get('results', []):
                 results.append(SearchResult(
                     id=str(r.get("id", "")),
-                    score=r.get("score", 0.0),
+                    score=r.get("final_score", r.get("score", 0.0)),
                     collection="codex",
                     payload=r.get("payload", {}),
                 ))
-        except Exception as e:
-            logger.error(f"Codex search error: {e}")
-            # Continue with library search
 
-    # Search library (decisions)
-    if search_request.collection in ["library", "both"]:
-        try:
-            library_engine = get_library_engine()
-            library_results = library_engine.search(
-                query=search_request.query,
-                limit=search_request.limit,
-                filters=filters if filters else None,
-                multilingual=search_request.multilingual,
-            )
-
-            for r in library_results:
+        # Collect library results
+        if search_request.collection in ["library", "both"]:
+            library_data = search_results.get('library', {})
+            for r in library_data.get('results', []):
                 results.append(SearchResult(
                     id=str(r.get("id", "")),
-                    score=r.get("score", 0.0),
+                    score=r.get("final_score", r.get("score", 0.0)),
                     collection="library",
                     payload=r.get("payload", {}),
                 ))
-        except Exception as e:
-            logger.error(f"Library search error: {e}")
 
-    # Sort by score and limit
-    results.sort(key=lambda x: x.score, reverse=True)
-    results = results[:search_request.limit]
+        # Sort by score and limit
+        results.sort(key=lambda x: x.score, reverse=True)
+        results = results[:search_request.limit]
+
+    except Exception as e:
+        logger.error(f"Search error: {e}")
+        results = []
 
     processing_time = (time.time() - start_time) * 1000
 
@@ -138,37 +129,39 @@ async def search_laws(
     q: str = Query(..., min_length=2, max_length=500, description="Search query"),
     limit: int = Query(10, ge=1, le=50),
     language: Optional[str] = Query(None, description="Filter by language: de, fr, it"),
-    multilingual: bool = Query(False, description="Enable cross-language search"),
     user: Dict = Depends(check_rate_limit),
 ):
     """
     Search Swiss laws (Codex collection).
 
-    Quick endpoint for law-only searches.
+    Uses TriadSearch with Hybrid + MMR + Reranking.
     """
     start_time = time.time()
+
+    triad = get_triad_search()
 
     filters = {}
     if language:
         filters["language"] = language
 
     try:
-        codex_engine = get_codex_engine()
-        raw_results = codex_engine.search(
+        search_results = await triad.search(
             query=q,
-            limit=limit,
+            user_id=None,
+            firm_id=None,
             filters=filters if filters else None,
-            multilingual=multilingual,
+            top_k=limit
         )
 
+        codex_data = search_results.get('codex', {})
         results = [
             SearchResult(
                 id=str(r.get("id", "")),
-                score=r.get("score", 0.0),
+                score=r.get("final_score", r.get("score", 0.0)),
                 collection="codex",
                 payload=r.get("payload", {}),
             )
-            for r in raw_results
+            for r in codex_data.get('results', [])
         ]
     except Exception as e:
         logger.error(f"Law search error: {e}")
@@ -198,15 +191,16 @@ async def search_decisions(
     language: Optional[str] = Query(None, description="Filter by language: de, fr, it"),
     year_min: Optional[int] = Query(None, ge=1900, le=2030),
     year_max: Optional[int] = Query(None, ge=1900, le=2030),
-    multilingual: bool = Query(False, description="Enable cross-language search"),
     user: Dict = Depends(check_rate_limit),
 ):
     """
     Search court decisions (Library collection).
 
-    Quick endpoint for decision-only searches.
+    Uses TriadSearch with Hybrid + MMR + Reranking.
     """
     start_time = time.time()
+
+    triad = get_triad_search()
 
     filters = {}
     if language:
@@ -218,22 +212,23 @@ async def search_decisions(
         }
 
     try:
-        library_engine = get_library_engine()
-        raw_results = library_engine.search(
+        search_results = await triad.search(
             query=q,
-            limit=limit,
+            user_id=None,
+            firm_id=None,
             filters=filters if filters else None,
-            multilingual=multilingual,
+            top_k=limit
         )
 
+        library_data = search_results.get('library', {})
         results = [
             SearchResult(
                 id=str(r.get("id", "")),
-                score=r.get("score", 0.0),
+                score=r.get("final_score", r.get("score", 0.0)),
                 collection="library",
                 payload=r.get("payload", {}),
             )
-            for r in raw_results
+            for r in library_data.get('results', [])
         ]
     except Exception as e:
         logger.error(f"Decision search error: {e}")

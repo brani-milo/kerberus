@@ -2,9 +2,9 @@
 KERBERUS Chainlit Frontend
 
 Sovereign AI Legal Assistant for Swiss Law
-Three-Stage LLM Pipeline:
+Four-Stage Pipeline:
 1. Mistral 1: Guard & Enhance
-2. Search + Rerank
+2. TriadSearch: Hybrid + MMR + Rerank
 3. Mistral 2: Query Reformulator
 4. Qwen: Full Legal Analysis
 """
@@ -16,12 +16,11 @@ from pathlib import Path
 # Add project root to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.search.hybrid_search import HybridSearchEngine
+from src.search.triad_search import TriadSearch
 from src.llm import get_pipeline, ContextAssembler
 
 # Global instances (initialized lazily)
-codex_engine = None
-library_engine = None
+triad_search = None
 pipeline = None
 context_assembler = None
 
@@ -51,15 +50,23 @@ def get_consistency_indicator(consistency: str, confidence: str) -> str:
     return f"{indicator} ({conf})"
 
 
+def get_search_confidence_indicator(confidence: str) -> str:
+    """Map search confidence to emoji."""
+    return {
+        "HIGH": "🟢",
+        "MEDIUM": "🟡",
+        "LOW": "🔴",
+        "NONE": "⚪",
+    }.get(confidence, "⚪")
+
+
 @cl.on_chat_start
 async def on_chat_start():
-    global codex_engine, library_engine, pipeline, context_assembler
+    global triad_search, pipeline, context_assembler
 
-    # Initialize search engines lazily
-    if codex_engine is None:
-        codex_engine = HybridSearchEngine(collection_name="codex")
-    if library_engine is None:
-        library_engine = HybridSearchEngine(collection_name="library")
+    # Initialize search engine lazily
+    if triad_search is None:
+        triad_search = TriadSearch()
     if pipeline is None:
         pipeline = get_pipeline()
     if context_assembler is None:
@@ -79,7 +86,8 @@ Ich bin Ihr KI-Rechtsassistent für Schweizer Recht. Stellen Sie mir Ihre rechtl
 - "Quelles sont les conditions du divorce en Suisse?"
 - "Cosa dice la legge sul licenziamento immediato?"
 
-_Die Antworten werden mit Gesetzeszitaten und Gerichtsentscheiden belegt._"""
+_Die Antworten werden mit Gesetzeszitaten und Gerichtsentscheiden belegt._
+_Suche mit Hybrid-Search + MMR + Reranking für optimale Ergebnisse._"""
     ).send()
 
     # Set up filters as settings
@@ -90,12 +98,6 @@ _Die Antworten werden mit Gesetzeszitaten und Gerichtsentscheiden belegt._"""
                 label="Search Scope",
                 values=["Both", "Laws (Codex)", "Decisions (Library)"],
                 initial_value="Both",
-            ),
-            cl.input_widget.Switch(
-                id="multilingual",
-                label="Cross-Language Mode",
-                initial=False,
-                description="Enable for conceptual queries across DE/FR/IT."
             ),
             cl.input_widget.Switch(
                 id="show_sources",
@@ -129,13 +131,18 @@ _Die Antworten werden mit Gesetzeszitaten und Gerichtsentscheiden belegt._"""
     ).send()
 
 
-def format_law_result(payload: dict, score: float, rank: int) -> str:
+def format_law_result(result: dict, rank: int) -> str:
     """Format a law article result."""
+    payload = result.get('payload', {})
     abbrev = payload.get('abbreviation', 'SR')
     art_num = payload.get('article_number', '?')
     art_title = payload.get('article_title', '')
     sr_num = payload.get('sr_number', '')
     lang = payload.get('language', '').upper()
+
+    # Get scores
+    final_score = result.get('final_score', result.get('score', 0))
+    recency = result.get('recency_score', 0)
 
     citation = f"{abbrev} Art. {art_num}"
     if art_title:
@@ -145,16 +152,21 @@ def format_law_result(payload: dict, score: float, rank: int) -> str:
     preview = text[:300] + "..." if len(text) > 300 else text
 
     return f"""**{rank}. {citation}**
-SR {sr_num} • `{lang}`
+SR {sr_num} • `{lang}` • Score: {final_score:.2f}
 
 > {preview}
 """
 
 
-def format_decision_result(payload: dict, score: float, rank: int) -> str:
+def format_decision_result(result: dict, rank: int) -> str:
     """Format a court decision result."""
+    payload = result.get('payload', {})
     decision_id = payload.get('decision_id', '')
     case_id = payload.get('_original_id', payload.get('id', 'Unknown'))
+
+    # Get scores
+    final_score = result.get('final_score', result.get('score', 0))
+    year = result.get('year', payload.get('year', ''))
 
     # Clean up case ID for display
     if decision_id and 'BGE-' in decision_id:
@@ -174,9 +186,7 @@ def format_decision_result(payload: dict, score: float, rank: int) -> str:
     if '_chunk_' in citation:
         citation = citation.split('_chunk_')[0]
 
-    year = payload.get('year', '')
     court = payload.get('court', '')
-
     court_names = {
         'CH_BGE': 'BGer',
         'CH_BGer': 'BGer',
@@ -197,6 +207,7 @@ def format_decision_result(payload: dict, score: float, rank: int) -> str:
     meta = f"{year}" if year else ""
     if court_display:
         meta += f" • {court_display}" if meta else court_display
+    meta += f" • Score: {final_score:.2f}"
 
     return f"""**{rank}. {citation}**
 {meta}
@@ -205,30 +216,29 @@ def format_decision_result(payload: dict, score: float, rank: int) -> str:
 """
 
 
-def format_sources_collapsible(codex_results: list, library_results: list) -> str:
+def format_sources_collapsible(codex_results: list, library_results: list, codex_conf: str, library_conf: str) -> str:
     """Format search results as a collapsible sources section."""
     parts = []
 
+    codex_emoji = get_search_confidence_indicator(codex_conf)
+    library_emoji = get_search_confidence_indicator(library_conf)
+
     if codex_results:
-        parts.append("### Gesetze (Codex)\n")
+        parts.append(f"### {codex_emoji} Gesetze (Codex) - {codex_conf}\n")
         for i, res in enumerate(codex_results[:5], 1):
-            parts.append(format_law_result(
-                res.get('payload', {}),
-                res.get('score', 0),
-                i
-            ))
+            parts.append(format_law_result(res, i))
 
     if library_results:
-        parts.append("\n### Rechtsprechung (Library)\n")
+        parts.append(f"\n### {library_emoji} Rechtsprechung (Library) - {library_conf}\n")
         seen = set()
         rank = 1
         for res in library_results:
             payload = res.get('payload', {})
             decision_id = payload.get('decision_id', '')
             base_id = decision_id.split('_chunk_')[0] if '_chunk_' in str(decision_id) else decision_id
-            if base_id not in seen and rank <= 7:
+            if base_id not in seen and rank <= 5:
                 seen.add(base_id)
-                parts.append(format_decision_result(payload, res.get('score', 0), rank))
+                parts.append(format_decision_result(res, rank))
                 rank += 1
 
     return "\n".join(parts) if parts else "Keine Quellen gefunden."
@@ -241,26 +251,23 @@ async def setup_agent(settings):
 
 @cl.on_message
 async def on_message(message: cl.Message):
-    global codex_engine, library_engine, pipeline, context_assembler
+    global triad_search, pipeline, context_assembler
 
     settings = cl.user_session.get("filters") or {}
     chat_history = cl.user_session.get("chat_history") or []
 
     # Build filters
-    base_filters = {}
+    filters = {}
     lang_setting = settings.get("language", "All")
     if lang_setting != "All":
         lang_map = {"German (DE)": "de", "French (FR)": "fr", "Italian (IT)": "it"}
         if lang_setting in lang_map:
-            base_filters["language"] = lang_map[lang_setting]
+            filters["language"] = lang_map[lang_setting]
 
-    library_filters = base_filters.copy()
     year_min = settings.get("year_min", 1950)
     year_max = settings.get("year_max", 2026)
     if year_min or year_max:
-        library_filters["year_range"] = {"min": int(year_min), "max": int(year_max)}
-
-    codex_filters = base_filters.copy()
+        filters["year_range"] = {"min": int(year_min), "max": int(year_max)}
 
     # Prepare response message
     msg = cl.Message(content="")
@@ -296,38 +303,37 @@ Bitte formulieren Sie Ihre Frage um oder kontaktieren Sie den Support."""
         legal_concepts = guard_result.legal_concepts
 
         # ============================================
-        # STAGE 2: Search
+        # STAGE 2: TriadSearch (Hybrid + MMR + Rerank)
         # ============================================
         search_scope = settings.get("search_scope", "Both")
-        multilingual = settings.get("multilingual", False)
         show_sources = settings.get("show_sources", True)
 
+        await cl.Message(content="_🔍 Hybrid-Search + MMR + Reranking..._").send()
+
+        # Execute triad search
+        search_results = await triad_search.search(
+            query=enhanced_query,
+            user_id=None,  # No dossier for now
+            firm_id=None,
+            filters=filters if filters else None,
+            top_k=10
+        )
+
+        # Extract results based on scope
         codex_results = []
         library_results = []
-
-        await cl.Message(content="_🔍 Durchsuche Rechtsdatenbank..._").send()
+        codex_conf = "NONE"
+        library_conf = "NONE"
 
         if search_scope in ["Both", "Laws (Codex)"]:
-            try:
-                codex_results = codex_engine.search(
-                    enhanced_query,
-                    limit=10,  # Fetch more, Qwen will filter
-                    filters=codex_filters if codex_filters else None,
-                    multilingual=multilingual
-                )
-            except Exception as e:
-                await cl.Message(content=f"_Codex search error: {str(e)}_").send()
+            codex_data = search_results.get('codex', {})
+            codex_results = codex_data.get('results', [])
+            codex_conf = codex_data.get('confidence', 'NONE')
 
         if search_scope in ["Both", "Decisions (Library)"]:
-            try:
-                library_results = library_engine.search(
-                    enhanced_query,
-                    limit=10,  # Fetch more, Qwen will filter
-                    filters=library_filters if library_filters else None,
-                    multilingual=multilingual
-                )
-            except Exception as e:
-                await cl.Message(content=f"_Library search error: {str(e)}_").send()
+            library_data = search_results.get('library', {})
+            library_results = library_data.get('results', [])
+            library_conf = library_data.get('confidence', 'NONE')
 
         # Check if we found anything
         if not codex_results and not library_results:
@@ -335,15 +341,21 @@ Bitte formulieren Sie Ihre Frage um oder kontaktieren Sie den Support."""
 
 Bitte versuchen Sie:
 - Eine andere Formulierung
-- Allgemeinere Begriffe
-- Den Cross-Language Modus zu aktivieren"""
+- Allgemeinere Begriffe"""
             await msg.update()
             return
 
+        # Show search confidence
+        overall_conf = search_results.get('overall_confidence', 'NONE')
+        await cl.Message(
+            content=f"_Suchqualität: {get_search_confidence_indicator(overall_conf)} {overall_conf} | Codex: {codex_conf} | Library: {library_conf}_",
+            author="system"
+        ).send()
+
         # Show sources (if enabled)
         if show_sources:
-            sources_text = format_sources_collapsible(codex_results, library_results)
-            sources_msg = cl.Message(content=f"**📚 Gefundene Quellen:**\n\n{sources_text}")
+            sources_text = format_sources_collapsible(codex_results, library_results, codex_conf, library_conf)
+            sources_msg = cl.Message(content=f"**📚 Gefundene Quellen (reranked):**\n\n{sources_text}")
             await sources_msg.send()
 
         # ============================================
@@ -368,9 +380,19 @@ Bitte versuchen Sie:
         # ============================================
         await cl.Message(content="_📄 Lade vollständige Dokumente..._").send()
 
+        # Convert reranked results back to standard format for context builder
+        codex_for_context = [
+            {"id": r.get("id"), "score": r.get("final_score", r.get("score", 0)), "payload": r.get("payload", {})}
+            for r in codex_results
+        ]
+        library_for_context = [
+            {"id": r.get("id"), "score": r.get("final_score", r.get("score", 0)), "payload": r.get("payload", {})}
+            for r in library_results
+        ]
+
         laws_context, decisions_context, context_meta = pipeline.build_context(
-            codex_results=codex_results,
-            library_results=library_results,
+            codex_results=codex_for_context,
+            library_results=library_for_context,
             max_laws=10,
             max_decisions=10,
         )
