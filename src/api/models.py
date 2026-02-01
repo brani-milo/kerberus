@@ -85,6 +85,7 @@ class ChatRequest(BaseModel):
     multilingual: Optional[bool] = Field(False, description="Enable cross-language search")
     max_laws: Optional[int] = Field(10, ge=1, le=15, description="Max laws to send to LLM (it will filter)")
     max_decisions: Optional[int] = Field(10, ge=1, le=20, description="Max decisions to send to LLM (it will filter)")
+    enable_web_search: Optional[bool] = Field(False, description="Enable web search for additional sources")
 
     class Config:
         json_schema_extra = {
@@ -92,7 +93,8 @@ class ChatRequest(BaseModel):
                 "query": "Unter welchen Umständen ist eine fristlose Kündigung gerechtfertigt?",
                 "language": "de",
                 "search_scope": "both",
-                "multilingual": False
+                "multilingual": False,
+                "enable_web_search": False
             }
         }
 

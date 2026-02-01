@@ -168,11 +168,19 @@ class LegalPipeline:
         laws_context: str,
         decisions_context: str,
         language: str,
+        web_search: bool = False,
     ) -> Generator[str, None, LLMResponse]:
         """
         Stage 4: Legal Analysis (Qwen)
 
         Streams the response for real-time display.
+
+        Args:
+            reformulated_query: Structured query from Mistral 2
+            laws_context: Formatted laws from RAG
+            decisions_context: Formatted decisions from RAG
+            language: Response language
+            web_search: If True, use Qwen with web search capability
         """
         system_prompt = LegalAnalysisPrompts.get_system_prompt(language)
 
@@ -187,7 +195,7 @@ class LegalPipeline:
             {"role": "user", "content": user_content},
         ]
 
-        return self.qwen.chat_stream(messages, max_tokens=8192, temperature=0.4)
+        return self.qwen.chat_stream(messages, max_tokens=8192, temperature=0.4, web_search=web_search)
 
     def analyze_sync(
         self,
@@ -195,8 +203,17 @@ class LegalPipeline:
         laws_context: str,
         decisions_context: str,
         language: str,
+        web_search: bool = False,
     ) -> Tuple[str, LLMResponse]:
-        """Non-streaming version of analyze."""
+        """Non-streaming version of analyze.
+
+        Args:
+            reformulated_query: Structured query from Mistral 2
+            laws_context: Formatted laws from RAG
+            decisions_context: Formatted decisions from RAG
+            language: Response language
+            web_search: If True, use Qwen with web search capability
+        """
         system_prompt = LegalAnalysisPrompts.get_system_prompt(language)
 
         user_content = LegalAnalysisPrompts.USER_TEMPLATE.format(
@@ -210,7 +227,7 @@ class LegalPipeline:
             {"role": "user", "content": user_content},
         ]
 
-        response = self.qwen.chat(messages, max_tokens=8192, temperature=0.4)
+        response = self.qwen.chat(messages, max_tokens=8192, temperature=0.4, web_search=web_search)
         return response.content, response
 
     def build_context(

@@ -200,6 +200,7 @@ async def chat(
             laws_context=laws_context,
             decisions_context=decisions_context,
             language=detected_language,
+            web_search=chat_request.enable_web_search or False,
         )
     except Exception as e:
         logger.error(f"Analysis stage failed: {e}")
@@ -406,7 +407,8 @@ async def chat_stream(
         yield f"data: {{'stage': 'context', 'status': 'complete'}}\n\n"
 
         # Stage 5: Stream analysis
-        yield f"data: {{'stage': 'analyze', 'status': 'streaming'}}\n\n"
+        web_search_enabled = chat_request.enable_web_search or False
+        yield f"data: {{'stage': 'analyze', 'status': 'streaming', 'web_search': {str(web_search_enabled).lower()}}}\n\n"
 
         try:
             stream_gen = pipeline.analyze(
@@ -414,6 +416,7 @@ async def chat_stream(
                 laws_context=laws_context,
                 decisions_context=decisions_context,
                 language=guard_result.detected_language,
+                web_search=web_search_enabled,
             )
 
             full_response = []

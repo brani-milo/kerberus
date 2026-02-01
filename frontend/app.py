@@ -105,6 +105,12 @@ _Suche mit Hybrid-Search + MMR + Reranking für optimale Ergebnisse._"""
                 initial=True,
                 description="Show the legal sources found before the AI answer."
             ),
+            cl.input_widget.Switch(
+                id="web_search",
+                label="Web Search",
+                initial=False,
+                description="Enable web search for additional legal sources and precedents."
+            ),
             cl.input_widget.Slider(
                 id="year_min",
                 label="Min Year (Decisions only)",
@@ -403,7 +409,11 @@ Bitte versuchen Sie:
         msg.content = ""
         await msg.update()
 
-        await cl.Message(content="_⚖️ Generiere rechtliche Analyse..._").send()
+        web_search_enabled = settings.get("web_search", False)
+        if web_search_enabled:
+            await cl.Message(content="_⚖️ Generiere rechtliche Analyse (mit Web-Suche)..._").send()
+        else:
+            await cl.Message(content="_⚖️ Generiere rechtliche Analyse..._").send()
 
         # Stream the response
         full_response = []
@@ -413,6 +423,7 @@ Bitte versuchen Sie:
                 laws_context=laws_context,
                 decisions_context=decisions_context,
                 language=detected_language,
+                web_search=web_search_enabled,
             )
 
             for chunk in stream_gen:

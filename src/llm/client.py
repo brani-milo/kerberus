@@ -171,6 +171,10 @@ class QwenClient:
     - Dual-language citations
     - Consistency indicators
     - Full legal analysis
+
+    Supports two modes:
+    - Standard: QWEN_API_KEY (no web search)
+    - Web Search: QWEN_WEB_API_KEY (with web search enabled)
     """
 
     # Pricing per 1M tokens (CHF)
@@ -182,24 +186,45 @@ class QwenClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
+        api_key_web: Optional[str] = None,
         base_url: Optional[str] = None,
         model: str = "qwen3-vl-235b-instruct",
     ):
+        # Standard API key (no web search)
         self.api_key = api_key or get_secret("QWEN_API_KEY") or get_secret("LLM_API_KEY")
+        # Web search API key (separate token)
+        self.api_key_web = api_key_web or get_secret("QWEN_WEB_API_KEY")
         self.base_url = base_url or os.getenv("QWEN_API_URL", "https://api.infomaniak.com/1/ai")
         self.model = model
 
         if not self.api_key:
-            logger.warning("No Qwen API key found")
+            logger.warning("No Qwen API key found (QWEN_API_KEY)")
+        if not self.api_key_web:
+            logger.info("No Qwen Web API key found (QWEN_WEB_API_KEY) - web search disabled")
+
+    def _get_api_key(self, web_search: bool = False) -> Optional[str]:
+        """Get the appropriate API key based on web search setting."""
+        if web_search and self.api_key_web:
+            return self.api_key_web
+        return self.api_key
 
     def chat(
         self,
         messages: List[Dict],
         max_tokens: int = 8192,
         temperature: float = 0.4,
+        web_search: bool = False,
     ) -> LLMResponse:
-        """Send chat request to Qwen."""
-        if not self.api_key:
+        """Send chat request to Qwen.
+
+        Args:
+            messages: Chat messages
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+            web_search: If True, use QWEN_WEB_API_KEY for web search capability
+        """
+        api_key = self._get_api_key(web_search)
+        if not api_key:
             return self._mock_response(messages)
 
         start_time = time.time()
@@ -208,7 +233,7 @@ class QwenClient:
             response = requests.post(
                 f"{self.base_url}/{self.model}/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {self.api_key}",
+                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
                 json={
@@ -246,9 +271,18 @@ class QwenClient:
         messages: List[Dict],
         max_tokens: int = 8192,
         temperature: float = 0.4,
+        web_search: bool = False,
     ) -> Generator[str, None, LLMResponse]:
-        """Stream chat response from Qwen."""
-        if not self.api_key:
+        """Stream chat response from Qwen.
+
+        Args:
+            messages: Chat messages
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+            web_search: If True, use QWEN_WEB_API_KEY for web search capability
+        """
+        api_key = self._get_api_key(web_search)
+        if not api_key:
             response = self._mock_response(messages)
             for word in response.content.split():
                 yield word + " "
@@ -264,7 +298,7 @@ class QwenClient:
             response = requests.post(
                 f"{self.base_url}/{self.model}/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {self.api_key}",
+                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
                 json={
