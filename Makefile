@@ -4,7 +4,7 @@
 # Quick start: make setup && make start
 # ============================================
 
-.PHONY: setup start stop restart logs test clean init-dossier scrape-ticino scrape-ticino-full scrape-ticino-test scrape-federal scrape-federal-test scrape-fedlex scrape-fedlex-test build-abbrev-registry parse-federal parse-ticino parse-ticino-test parse-fedlex parse-fedlex-test embed-fedlex embed-fedlex-test embed-decisions embed-decisions-test embed-all embed-status help
+.PHONY: setup start stop restart logs test clean init-dossier scrape-ticino scrape-ticino-full scrape-ticino-test scrape-federal scrape-federal-test scrape-fedlex scrape-fedlex-test build-abbrev-registry parse-federal parse-ticino parse-ticino-test parse-fedlex parse-fedlex-test embed-fedlex embed-fedlex-test embed-decisions embed-decisions-test embed-all embed-status api api-prod chainlit help
 
 # ============================================
 # SETUP & INSTALLATION
@@ -209,6 +209,24 @@ clean-pycache: ## Remove Python cache files
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	@echo "Python cache cleared"
+
+# ============================================
+# API SERVER
+# ============================================
+
+api: ## Start FastAPI server (development mode)
+	@echo "Starting KERBERUS API..."
+	. venv/bin/activate && uvicorn src.api.main:app --reload --port 8000
+	@echo "API available at http://localhost:8000"
+	@echo "Docs at http://localhost:8000/docs"
+
+api-prod: ## Start FastAPI server (production mode)
+	@echo "Starting KERBERUS API (production)..."
+	. venv/bin/activate && uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 4
+
+chainlit: ## Start Chainlit frontend
+	@echo "Starting Chainlit frontend..."
+	. venv/bin/activate && cd frontend && chainlit run app.py --port 8501
 
 # ============================================
 # DEVELOPMENT UTILITIES

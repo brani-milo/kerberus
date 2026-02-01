@@ -1,0 +1,188 @@
+"""
+KERBERUS REST API - Main Application.
+
+FastAPI-based REST API for the Swiss Legal Intelligence Platform.
+
+Usage:
+    # Development
+    uvicorn src.api.main:app --reload --port 8000
+
+    # Production
+    uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 4
+"""
+import os
+import time
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+
+from .routes import auth_router, chat_router, search_router, health_router
+from .models import ErrorResponse
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+# API metadata
+API_TITLE = "KERBERUS API"
+API_DESCRIPTION = """
+**Swiss Legal Intelligence Platform**
+
+A sovereign AI-powered legal assistant for Swiss law, providing:
+
+- **Hybrid Search** - Semantic + lexical search across laws and court decisions
+- **Three-Stage LLM Pipeline** - Guard, Reformulate, and Analyze
+- **Multilingual Support** - German, French, Italian, and English
+- **Dual-Language Citations** - Translated + original with source links
+
+## Authentication
+
+All endpoints (except `/health`) require Bearer token authentication.
+
+1. Register: `POST /auth/register`
+2. Login: `POST /auth/login`
+3. Use token: `Authorization: Bearer <token>`
+
+## Rate Limits
+
+- 50 requests/hour
+- 300 requests/day
+
+## Collections
+
+- **Codex**: Swiss federal laws (OR, ZGB, StGB, etc.)
+- **Library**: Court decisions (BGE, BGer, BVGE, etc.)
+"""
+API_VERSION = os.getenv("APP_VERSION", "0.1.0")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan handler.
+
+    Runs on startup and shutdown.
+    """
+    # Startup
+    logger.info(f"Starting KERBERUS API v{API_VERSION}")
+
+    # Initialize database schema
+    try:
+        from ..database.auth_db import get_auth_db
+        db = get_auth_db()
+        db.init_schema()
+        logger.info("Database schema initialized")
+    except Exception as e:
+        logger.warning(f"Database initialization skipped: {e}")
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down KERBERUS API")
+
+
+def create_app() -> FastAPI:
+    """
+    Create and configure the FastAPI application.
+
+    Returns:
+        Configured FastAPI instance.
+    """
+    app = FastAPI(
+        title=API_TITLE,
+        description=API_DESCRIPTION,
+        version=API_VERSION,
+        lifespan=lifespan,
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json",
+    )
+
+    # CORS middleware
+    allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8501").split(",")
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Request timing middleware
+    @app.middleware("http")
+    async def add_process_time_header(request: Request, call_next):
+        start_time = time.time()
+        response = await call_next(request)
+        process_time = (time.time() - start_time) * 1000
+        response.headers["X-Process-Time-Ms"] = f"{process_time:.2f}"
+        return response
+
+    # Exception handlers
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        errors = []
+        for error in exc.errors():
+            loc = " -> ".join(str(l) for l in error["loc"])
+            errors.append(f"{loc}: {error['msg']}")
+
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "error": "Validation Error",
+                "detail": "; ".join(errors),
+                "code": "VALIDATION_ERROR",
+            },
+        )
+
+    @app.exception_handler(Exception)
+    async def generic_exception_handler(request: Request, exc: Exception):
+        logger.error(f"Unhandled exception: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error": "Internal Server Error",
+                "detail": str(exc) if os.getenv("APP_ENV") == "development" else None,
+                "code": "INTERNAL_ERROR",
+            },
+        )
+
+    # Include routers
+    app.include_router(health_router)
+    app.include_router(auth_router)
+    app.include_router(search_router)
+    app.include_router(chat_router)
+
+    # Root endpoint
+    @app.get("/", include_in_schema=False)
+    async def root():
+        return {
+            "name": API_TITLE,
+            "version": API_VERSION,
+            "docs": "/docs",
+            "health": "/health",
+        }
+
+    return app
+
+
+# Create app instance
+app = create_app()
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "src.api.main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info",
+    )
