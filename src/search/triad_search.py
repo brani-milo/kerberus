@@ -110,7 +110,8 @@ class TriadSearch:
         Search single lane with full hybrid pipeline.
 
         Pipeline:
-        1. Hybrid search - RRF fusion of dense + sparse (top 50)
+        Pipeline:
+        1. Hybrid search - RRF fusion of dense + sparse (top 250)
         2. MMR diversification (top 20)
         3. Rerank with cross-encoder (top 10)
         4. Confidence scoring
@@ -127,7 +128,8 @@ class TriadSearch:
                 collection_name=collection_name,
                 dense_vector=query_vectors['dense'],
                 sparse_vector=query_vectors['sparse'],
-                limit=50,
+                sparse_vector=query_vectors['sparse'],
+                limit=250,
                 filters=lane_filters
             )
             
@@ -225,7 +227,9 @@ class TriadSearch:
                         collection_name=col,
                         dense_vector=query_vectors['dense'],
                         sparse_vector=query_vectors['sparse'],
-                        limit=25,  # 25 per collection = 50 total
+                        dense_vector=query_vectors['dense'],
+                        sparse_vector=query_vectors['sparse'],
+                        limit=125,  # 125 per collection = 250 total (if 2 cols)
                         filters=filters
                     )
                     if results:
@@ -242,8 +246,8 @@ class TriadSearch:
                     'message': 'No relevant documents in dossier'
                 }
 
-            # Sort by score and take top 50
-            all_results = sorted(all_results, key=lambda x: x['score'], reverse=True)[:50]
+            # Sort by score and take top 250
+            all_results = sorted(all_results, key=lambda x: x['score'], reverse=True)[:250]
 
             # Apply MMR and rerank
             diverse_results = apply_mmr(

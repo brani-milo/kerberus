@@ -77,6 +77,7 @@ User Query → Mistral 1 (Guard) → Search → Mistral 2 (Reformulate) → Qwen
 - **Authority weighting** - Supreme Court (BGE/ATF) cases prioritized
 - **Calibrated MMR** - Optimized diversity/relevance balance (0.85) to preserve Cantonal decisions
 - **Triad search** - Parallel search across laws (Codex), case law (Library), and user dossiers
+- **Deep Search Scaling** - Retrieves 250+ candidates per lane and de-duplicates chunks to ensure 15+ unique decisions in context
 - **Full document retrieval** - When a chunk matches, fetches complete decision for context
 
 **Cost Optimization:**

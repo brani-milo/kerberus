@@ -179,7 +179,7 @@ def format_sources_collapsible(codex_results: list, library_results: list, codex
             payload = res.get('payload', {})
             decision_id = payload.get('decision_id', '')
             base_id = decision_id.split('_chunk_')[0] if '_chunk_' in str(decision_id) else decision_id
-            if base_id not in seen and rank <= 10:
+            if base_id not in seen and rank <= 15:
                 seen.add(base_id)
                 parts.append(format_decision_result(res, rank))
                 rank += 1
@@ -515,7 +515,7 @@ Please rephrase your question or contact support."""
             user_id=None,
             firm_id=None,
             filters=filters if filters else None,
-            top_k=20
+            top_k=50
         )
 
         codex_results = []
@@ -581,7 +581,7 @@ Please try:
             codex_results=codex_for_context,
             library_results=library_for_context,
             max_laws=10,
-            max_decisions=10,
+            max_decisions=15,
         )
 
         # STAGE 5: Legal Analysis
