@@ -117,15 +117,24 @@ class TriadSearch:
         """
         try:
             # Step 1: Hybrid search (dense + sparse with RRF fusion)
+            # IMPORTANT: Remove year filter for Codex (laws don't have 'year' like decisions)
+            lane_filters = filters.copy() if filters else None
+            if collection_name == 'codex' and lane_filters and 'year_range' in lane_filters:
+                del lane_filters['year_range']
+
+            logger.info(f"Searching {collection_name} with query: {query[:50]}...")
             candidates = self.vector_db.search_hybrid(
                 collection_name=collection_name,
                 dense_vector=query_vectors['dense'],
                 sparse_vector=query_vectors['sparse'],
                 limit=50,
-                filters=filters
+                filters=lane_filters
             )
+            
+            logger.info(f"{collection_name}: Got {len(candidates)} candidates from hybrid search")
 
             if not candidates:
+                logger.warning(f"{collection_name}: No candidates found")
                 return {
                     'results': [],
                     'confidence': 'NONE',
@@ -133,12 +142,12 @@ class TriadSearch:
                 }
 
             # Step 2: MMR diversification
-            # Note: RRF already provides some diversity, but MMR further optimizes it
-            # We use the dense query vector for similarity comparison
+            # Note: Increased lambda to 0.85 to reduce penalty on cantonal decisions
+            # which might share metadata (source) with federal ones but are distinct
             diverse_results = apply_mmr(
                 candidates=candidates,
                 query_embedding=query_vectors['dense'],
-                lambda_param=0.7,
+                lambda_param=0.85,
                 top_k=20
             )
 
@@ -147,12 +156,13 @@ class TriadSearch:
             rerank_docs = []
             for doc in diverse_results:
                 payload = doc.get('payload', {})
-                # Fallback chain: article_text (Fedlex) -> text -> content.reasoning (decisions) -> empty
+                # Fallback chain: text_preview (primary) -> article_text -> text -> content.reasoning -> empty
                 text = (
+                    payload.get('text_preview') or
                     payload.get('article_text') or
                     payload.get('text') or
-                    payload.get('content', {}).get('reasoning') or
-                    payload.get('content', {}).get('regeste') or
+                    (payload.get('content', {}).get('reasoning') if isinstance(payload.get('content'), dict) else None) or
+                    (payload.get('content', {}).get('regeste') if isinstance(payload.get('content'), dict) else None) or
                     ''
                 )
                 rerank_docs.append({'text': text, **doc})
@@ -239,7 +249,7 @@ class TriadSearch:
             diverse_results = apply_mmr(
                 candidates=all_results,
                 query_embedding=query_vectors['dense'],
-                lambda_param=0.7,
+                lambda_param=0.85,
                 top_k=20
             )
 
@@ -248,6 +258,7 @@ class TriadSearch:
             for doc in diverse_results:
                 payload = doc.get('payload', {})
                 text = (
+                    payload.get('text_preview') or
                     payload.get('text') or
                     payload.get('content') or
                     payload.get('article_text') or

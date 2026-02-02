@@ -224,8 +224,10 @@ api-prod: ## Start FastAPI server (production mode)
 	@echo "Starting KERBERUS API (production)..."
 	. venv/bin/activate && uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 4
 
-chainlit: ## Start Chainlit frontend
-	@echo "Starting Chainlit frontend..."
+chainlit: ## Start KERBERUS UI (Search + Review modes)
+	@echo "Starting KERBERUS Chainlit frontend..."
+	@echo "  - Search Mode: /search (legal queries)"
+	@echo "  - Review Mode: /review (document extraction)"
 	. venv/bin/activate && cd frontend && chainlit run app.py --port 8501
 
 # ============================================

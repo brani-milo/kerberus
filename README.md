@@ -71,12 +71,12 @@ User Query → Mistral 1 (Guard) → Search → Mistral 2 (Reformulate) → Qwen
 - **Stage 4: Legal Analysis** - Full analysis with dual-language citations (Qwen)
 
 **Advanced RAG Pipeline:**
-- **BGE-M3 embeddings** - Multilingual semantic search (1024-dim, 100+ languages)
+- **BGE-M3 embeddings** - Multilingual semantic search (1024-dim, 100+ languages) enabling zero-shot cross-lingual retrieval
 - **BGE-Reranker-v2-M3** - Cross-encoder precision ranking
 - **Recency weighting** - Recent precedents scored higher
 - **Authority weighting** - Supreme Court (BGE/ATF) cases prioritized
-- **MMR algorithm** - Eliminates redundant results while maintaining relevance
-- **Triad search** - Parallel search across laws, case law, and user documents
+- **Calibrated MMR** - Optimized diversity/relevance balance (0.85) to preserve Cantonal decisions
+- **Triad search** - Parallel search across laws (Codex), case law (Library), and user dossiers
 - **Full document retrieval** - When a chunk matches, fetches complete decision for context
 
 **Cost Optimization:**

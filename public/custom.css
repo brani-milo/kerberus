@@ -10,9 +10,12 @@
 :root {
     --kerberus-red: #8B1E3F;
     --kerberus-red-light: #C73E5C;
+    --kerberus-red-lighter: #E05A7A;
     --kerberus-gray: #4A5568;
     --kerberus-dark: #1A202C;
     --kerberus-blue: #2C5282;
+    --kerberus-blue-light: #4299E1;
+    --kerberus-blue-lighter: #63B3ED;
     --kerberus-bg: #F7FAFC;
     --kerberus-card: rgba(255, 255, 255, 0.85);
 }
@@ -28,8 +31,8 @@ body,
 body,
 html,
 #root,
-#root > div,
-#root > div > div,
+#root>div,
+#root>div>div,
 .MuiBox-root,
 [class*="main"],
 [class*="Main"],
@@ -45,8 +48,8 @@ main,
 .css-0 {
     background-color: #F7FAFC !important;
     background-image:
-        radial-gradient(at 100% 0%, rgba(139, 30, 63, 0.15) 0px, transparent 50%),
-        radial-gradient(at 0% 100%, rgba(44, 82, 130, 0.15) 0px, transparent 50%) !important;
+        radial-gradient(at 100% 0%, rgba(139, 30, 63, 0.25) 0px, transparent 55%),
+        radial-gradient(at 0% 100%, rgba(44, 82, 130, 0.25) 0px, transparent 55%) !important;
     background-attachment: fixed !important;
 }
 
@@ -59,8 +62,8 @@ div[style*="background:#fff"],
 div[style*="background-color:#fff"] {
     background-color: #F7FAFC !important;
     background-image:
-        radial-gradient(at 100% 0%, rgba(139, 30, 63, 0.15) 0px, transparent 50%),
-        radial-gradient(at 0% 100%, rgba(44, 82, 130, 0.15) 0px, transparent 50%) !important;
+        radial-gradient(at 100% 0%, rgba(139, 30, 63, 0.25) 0px, transparent 55%),
+        radial-gradient(at 0% 100%, rgba(44, 82, 130, 0.25) 0px, transparent 55%) !important;
 }
 
 /* Pseudo-element overlay - Premium WOW effect */
@@ -72,12 +75,12 @@ body::before {
     right: 0;
     bottom: 0;
     background:
-        /* Top right - Bold red glow */
-        radial-gradient(ellipse 80% 60% at 100% 0%, rgba(139, 30, 63, 0.25) 0%, rgba(139, 30, 63, 0.1) 40%, transparent 70%),
-        /* Bottom left - Bold blue glow */
-        radial-gradient(ellipse 80% 60% at 0% 100%, rgba(44, 82, 130, 0.25) 0%, rgba(44, 82, 130, 0.1) 40%, transparent 70%),
+        /* Top right - Bold red glow - MORE VISIBLE */
+        radial-gradient(ellipse 85% 65% at 100% 0%, rgba(199, 62, 92, 0.35) 0%, rgba(139, 30, 63, 0.15) 45%, transparent 75%),
+        /* Bottom left - Bold blue glow - MORE VISIBLE */
+        radial-gradient(ellipse 85% 65% at 0% 100%, rgba(66, 153, 225, 0.35) 0%, rgba(44, 82, 130, 0.15) 45%, transparent 75%),
         /* Center subtle warmth */
-        radial-gradient(ellipse 100% 100% at 50% 50%, rgba(255, 255, 255, 0.8) 0%, transparent 70%),
+        radial-gradient(ellipse 100% 100% at 50% 50%, rgba(255, 255, 255, 0.7) 0%, transparent 70%),
         /* Base gradient */
         linear-gradient(135deg, #F8FAFC 0%, #EDF2F7 50%, #E2E8F0 100%);
     z-index: -1;
@@ -93,10 +96,10 @@ body::after {
     right: 0;
     height: 4px;
     background: linear-gradient(90deg,
-        var(--kerberus-red) 0%,
-        var(--kerberus-red-light) 30%,
-        var(--kerberus-blue) 70%,
-        #4299E1 100%);
+            var(--kerberus-red) 0%,
+            var(--kerberus-red-light) 30%,
+            var(--kerberus-blue) 70%,
+            #4299E1 100%);
     z-index: 9999;
     box-shadow: 0 2px 10px rgba(139, 30, 63, 0.3);
 }
@@ -106,8 +109,8 @@ body::after {
    ============================================ */
 header {
     background: linear-gradient(135deg,
-        rgba(255, 255, 255, 0.95) 0%,
-        rgba(248, 250, 252, 0.9) 100%) !important;
+            rgba(255, 255, 255, 0.95) 0%,
+            rgba(248, 250, 252, 0.9) 100%) !important;
     backdrop-filter: blur(20px) saturate(180%);
     border-bottom: 1px solid rgba(139, 30, 63, 0.15) !important;
     box-shadow:
@@ -118,7 +121,7 @@ header {
 }
 
 /* Header Container - Flex to push logo right */
-header > div {
+header>div {
     display: flex !important;
     align-items: center !important;
     justify-content: space-between !important;
@@ -175,10 +178,10 @@ header .MuiTypography-h6 {
     right: 0;
     height: 5px;
     background: linear-gradient(90deg,
-        var(--kerberus-red) 0%,
-        var(--kerberus-red-light) 25%,
-        var(--kerberus-blue) 75%,
-        #4299E1 100%);
+            var(--kerberus-red) 0%,
+            var(--kerberus-red-light) 25%,
+            var(--kerberus-blue) 75%,
+            #4299E1 100%);
     background-size: 200% 100%;
     animation: shimmer 3s ease-in-out infinite;
 }
@@ -192,14 +195,21 @@ header .MuiTypography-h6 {
     width: 200px;
     height: 200px;
     background: radial-gradient(circle at 100% 100%,
-        rgba(139, 30, 63, 0.08) 0%,
-        transparent 70%);
+            rgba(139, 30, 63, 0.08) 0%,
+            transparent 70%);
     pointer-events: none;
 }
 
 @keyframes shimmer {
-    0%, 100% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
+
+    0%,
+    100% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
 }
 
 .welcome-text h1 {
@@ -266,8 +276,8 @@ header .MuiTypography-h6 {
 [class*="user-message"],
 .user-message {
     background: linear-gradient(135deg,
-        var(--kerberus-red) 0%,
-        var(--kerberus-red-light) 100%) !important;
+            var(--kerberus-red) 0%,
+            var(--kerberus-red-light) 100%) !important;
     color: white !important;
     border: none !important;
     box-shadow:
@@ -316,8 +326,8 @@ button[type="submit"],
 .MuiIconButton-root[aria-label*="send" i],
 [class*="send-button"] {
     background: linear-gradient(135deg,
-        var(--kerberus-red) 0%,
-        var(--kerberus-red-light) 100%) !important;
+            var(--kerberus-red) 0%,
+            var(--kerberus-red-light) 100%) !important;
     color: white !important;
     border-radius: 14px !important;
     border: none !important;
@@ -355,7 +365,7 @@ button[type="submit"]:active,
     color: var(--kerberus-red) !important;
 }
 
-.MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track {
+.MuiSwitch-switchBase.Mui-checked+.MuiSwitch-track {
     background-color: var(--kerberus-red) !important;
 }
 
@@ -370,13 +380,19 @@ button[type="submit"]:active,
 /* ============================================
    TYPOGRAPHY ENHANCEMENTS
    ============================================ */
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
     font-weight: 600 !important;
     color: var(--kerberus-dark) !important;
 }
 
 /* Code blocks */
-code, pre {
+code,
+pre {
     background: rgba(26, 32, 44, 0.05) !important;
     border-radius: 6px !important;
     font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
@@ -433,8 +449,15 @@ blockquote {
    ANIMATIONS
    ============================================ */
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .cl-message,
@@ -468,4 +491,102 @@ blockquote {
 
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(139, 30, 63, 0.5);
+}
+
+/* ============================================
+   ACTION BUTTONS - Mode Switchers
+   ============================================ */
+/* ============================================
+   ACTION BUTTONS - Mode Switchers
+   ============================================ */
+/* Target buttons within ai-message - these are Chainlit action buttons */
+.ai-message button,
+div.flex.items-center.flex-wrap button {
+    min-width: 240px !important;
+    min-height: 65px !important;
+    height: auto !important;
+    padding: 20px 36px !important;
+    font-size: 1.2rem !important;
+    font-weight: 600 !important;
+    border-radius: 16px !important;
+    margin: 10px 8px !important;
+    background: linear-gradient(135deg,
+            var(--kerberus-red-light) 0%,
+            var(--kerberus-red-lighter) 100%) !important;
+    color: white !important;
+    border: none !important;
+    box-shadow:
+        0 8px 25px rgba(199, 62, 92, 0.3),
+        0 4px 15px rgba(224, 90, 122, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    cursor: pointer !important;
+    text-transform: none !important;
+    letter-spacing: 0.02em !important;
+}
+
+/* DRAMATIC hover effect for red button */
+.ai-message button:hover,
+div.flex.items-center.flex-wrap button:hover {
+    transform: translateY(-8px) scale(1.05) !important;
+    /* Much brighter on hover - almost white-pink glow */
+    background: linear-gradient(135deg,
+            #F472B6 0%,
+            #EC4899 100%) !important;
+    box-shadow:
+        0 20px 50px rgba(236, 72, 153, 0.5),
+        0 15px 35px rgba(244, 114, 182, 0.4),
+        0 0 30px rgba(244, 114, 182, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+}
+
+.ai-message button:active,
+div.flex.items-center.flex-wrap button:active {
+    transform: translateY(-2px) scale(0.98) !important;
+    background: linear-gradient(135deg,
+            var(--kerberus-red) 0%,
+            var(--kerberus-red-light) 100%) !important;
+}
+
+/* Second button - Blue variant (lighter) */
+.ai-message button:nth-of-type(2),
+div.flex.items-center.flex-wrap button:nth-child(2) {
+    background: linear-gradient(135deg,
+            var(--kerberus-blue-light) 0%,
+            var(--kerberus-blue-lighter) 100%) !important;
+    box-shadow:
+        0 8px 25px rgba(66, 153, 225, 0.3),
+        0 4px 15px rgba(99, 179, 237, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
+}
+
+/* DRAMATIC hover effect for blue button */
+.ai-message button:nth-of-type(2):hover,
+div.flex.items-center.flex-wrap button:nth-child(2):hover {
+    /* Much brighter on hover - almost cyan glow */
+    background: linear-gradient(135deg,
+            #7DD3FC 0%,
+            #38BDF8 100%) !important;
+    box-shadow:
+        0 20px 50px rgba(56, 189, 248, 0.5),
+        0 15px 35px rgba(125, 211, 252, 0.4),
+        0 0 30px rgba(125, 211, 252, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+}
+
+.ai-message button:nth-of-type(2):active,
+div.flex.items-center.flex-wrap button:nth-child(2):active {
+    background: linear-gradient(135deg,
+            var(--kerberus-blue) 0%,
+            var(--kerberus-blue-light) 100%) !important;
+}
+
+/* Button container - center them nicely */
+.ai-message div.flex.items-center.flex-wrap {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    gap: 16px !important;
+    margin: 24px 0 !important;
+    padding: 10px !important;
 }
