@@ -181,6 +181,12 @@ This ensures recent, authoritative precedents surface first while maintaining se
   - Chat endpoint with streaming support (SSE)
   - Rate limiting (50/hour, 300/day)
   - OpenAPI documentation at `/docs`
+- **Security Hardening**
+  - HTTP security headers (X-Frame-Options, CSP, X-Content-Type-Options, etc.)
+  - Proper session invalidation on logout
+  - Password change endpoint with session management
+  - Account lockout after failed login attempts (brute force protection)
+  - IP-based rate limiting for authentication endpoints
 
 ## 🛠️ Usage
 
@@ -227,6 +233,9 @@ make api-prod
 API endpoints available at `http://localhost:8000`:
 - `POST /auth/register` - Register new user
 - `POST /auth/login` - Get access token
+- `POST /auth/logout` - Invalidate session
+- `POST /auth/password/change` - Change password
+- `POST /auth/mfa/setup` - Initialize MFA setup
 - `POST /search` - Search laws and decisions
 - `POST /chat` - Full legal analysis
 - `POST /chat/stream` - Streaming analysis (SSE)
@@ -289,10 +298,12 @@ Requires replacing scrapers and adapting metadata schema for local court hierarc
 
 - **Zero-knowledge encryption** - SQLCipher AES-256, keys derived from user password (we cannot decrypt without user)
 - **MFA authentication** - TOTP-based (Google Authenticator compatible) + backup codes
-- **Session security** - Cryptographically secure tokens, automatic expiration
+- **Session security** - Cryptographically secure tokens, automatic expiration, proper logout invalidation
+- **Brute force protection** - Account lockout after failed attempts, IP-based rate limiting
+- **Security headers** - X-Frame-Options, CSP, X-Content-Type-Options, Referrer-Policy
 - **Swiss data sovereignty** - All infrastructure hosted in Switzerland (Infomaniak)
 - **GDPR compliant** - By design, no third-party tracking
-- **Password security** - bcrypt with 12 rounds, secure password verification
+- **Password security** - bcrypt with 12 rounds, secure password verification, self-service password change
 
 ---
 
@@ -354,6 +365,12 @@ Built during my job search (January 2026 - present). This project represents:
 - Production-grade LLM application development
 - LLMOps certification applied to real-world problems
 - 7+ Years experience in Data Science
+
+### Special Thanks
+
+**[Entscheidsuche.ch](https://entscheidsuche.ch/)** - This project would not be possible without the incredible work of the Entscheidsuche.ch team. They have built and maintain the scrapers that collect Swiss court decisions, and provide open access to this invaluable legal data. Their commitment to making Swiss case law accessible is a cornerstone of legal transparency in Switzerland.
+
+**[Claude Code](https://claude.ai/claude-code)** - Parts of the frontend interface and MFA implementation were developed with assistance from Claude Code, Anthropic's AI-powered development tool. This project embraces modern AI-assisted development practices to accelerate delivery while maintaining code quality.
 ## ⚠️ Project Status & Disclaimer
 
 **This is a portfolio/demonstration project built to showcase:**

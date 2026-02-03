@@ -31,6 +31,7 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
     totp_code: Optional[str] = Field(None, description="6-digit TOTP code if MFA enabled")
+    backup_code: Optional[str] = Field(None, description="Backup code for MFA recovery (format: XXXX-XXXX)")
 
     class Config:
         json_schema_extra = {
@@ -52,6 +53,20 @@ class TokenResponse(BaseModel):
     mfa_enabled: bool
 
 
+class PasswordChangeRequest(BaseModel):
+    """Password change request."""
+    current_password: str
+    new_password: str = Field(..., min_length=8, description="New password (minimum 8 characters)")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "current_password": "oldpassword123",
+                "new_password": "newsecurepassword456"
+            }
+        }
+
+
 class MFASetupResponse(BaseModel):
     """MFA setup response with QR code."""
     secret: str
@@ -62,6 +77,29 @@ class MFASetupResponse(BaseModel):
 class MFAVerifyRequest(BaseModel):
     """MFA verification request."""
     totp_code: str = Field(..., min_length=6, max_length=6)
+
+
+class MFAVerifyResponse(BaseModel):
+    """MFA verification success response with backup codes."""
+    message: str = "MFA enabled successfully"
+    backup_codes: List[str] = Field(..., description="One-time backup codes for account recovery")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "message": "MFA enabled successfully",
+                "backup_codes": [
+                    "A1B2-C3D4",
+                    "E5F6-G7H8",
+                    "I9J0-K1L2",
+                    "M3N4-O5P6",
+                    "Q7R8-S9T0",
+                    "U1V2-W3X4",
+                    "Y5Z6-A7B8",
+                    "C9D0-E1F2"
+                ]
+            }
+        }
 
 
 class UserResponse(BaseModel):

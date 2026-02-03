@@ -13,18 +13,38 @@ from ..models import (
     UserRegister,
     UserLogin,
     TokenResponse,
+    PasswordChangeRequest,
     MFASetupResponse,
     MFAVerifyRequest,
+    MFAVerifyResponse,
     UserResponse,
     UsageStats,
     ErrorResponse,
 )
-from ..deps import get_db, get_current_user
+from ..deps import (
+    get_db,
+    get_current_user,
+    store_pending_mfa_secret,
+    get_pending_mfa_secret,
+    clear_pending_mfa_secret,
+    check_register_rate_limit,
+    check_login_rate_limit,
+)
 from ...database.auth_db import AuthDB, hash_password, verify_password
-from ...auth.mfa import setup_mfa, verify_totp
+from ...auth.mfa import (
+    setup_mfa,
+    verify_totp,
+    generate_backup_codes,
+    hash_backup_codes,
+    find_matching_backup_code,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+# Account lockout settings
+MAX_FAILED_ATTEMPTS = 5
+LOCKOUT_MINUTES = 15
 
 
 @router.post(
@@ -34,7 +54,9 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
     responses={
         400: {"model": ErrorResponse, "description": "Invalid input"},
         409: {"model": ErrorResponse, "description": "Email already exists"},
+        429: {"model": ErrorResponse, "description": "Too many registration attempts"},
     },
+    dependencies=[Depends(check_register_rate_limit)],
 )
 async def register(
     user_data: UserRegister,
@@ -91,7 +113,9 @@ async def register(
     responses={
         401: {"model": ErrorResponse, "description": "Invalid credentials"},
         403: {"model": ErrorResponse, "description": "Account disabled or MFA required"},
+        429: {"model": ErrorResponse, "description": "Account locked or too many attempts from this IP"},
     },
+    dependencies=[Depends(check_login_rate_limit)],
 )
 async def login(
     credentials: UserLogin,
@@ -100,12 +124,28 @@ async def login(
     """
     Authenticate user and return access token.
 
-    If MFA is enabled, totp_code must be provided.
+    If MFA is enabled, provide either:
+    - totp_code: 6-digit code from authenticator app
+    - backup_code: One-time recovery code (format: XXXX-XXXX)
+
+    Backup codes are consumed on use and cannot be reused.
+
+    Account is locked for 15 minutes after 5 failed login attempts.
     """
+    # Check for account lockout before processing
+    failed_count = db.get_failed_login_count(credentials.email, LOCKOUT_MINUTES)
+    if failed_count >= MAX_FAILED_ATTEMPTS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Account locked due to too many failed attempts. Try again in {LOCKOUT_MINUTES} minutes.",
+            headers={"Retry-After": str(LOCKOUT_MINUTES * 60)},
+        )
+
     # Get user by email
     user = db.get_user_by_email(credentials.email)
 
     if user is None:
+        db.record_failed_login(credentials.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -120,6 +160,7 @@ async def login(
 
     # Verify password
     if not verify_password(credentials.password, user["password_hash"]):
+        db.record_failed_login(credentials.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -127,14 +168,32 @@ async def login(
 
     # Check MFA if enabled
     if user["mfa_enabled"]:
-        if not credentials.totp_code:
+        if not credentials.totp_code and not credentials.backup_code:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="MFA code required",
                 headers={"X-MFA-Required": "true"},
             )
 
-        if not verify_totp(user["totp_secret"], credentials.totp_code):
+        mfa_valid = False
+        user_id = str(user["user_id"])
+
+        # Try TOTP code first
+        if credentials.totp_code:
+            if verify_totp(user["totp_secret"], credentials.totp_code):
+                mfa_valid = True
+
+        # Try backup code if TOTP not provided or failed
+        if not mfa_valid and credentials.backup_code:
+            hashed_codes = db.get_backup_codes(user_id)
+            code_index = find_matching_backup_code(credentials.backup_code, hashed_codes)
+            if code_index is not None:
+                # Remove the used backup code
+                db.remove_backup_code(user_id, code_index)
+                mfa_valid = True
+                logger.info(f"Backup code used for login: {credentials.email}")
+
+        if not mfa_valid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid MFA code",
@@ -143,6 +202,9 @@ async def login(
     # Create session
     user_id = str(user["user_id"])
     session_token = db.create_session(user_id, expires_hours=24)
+
+    # Clear failed login attempts on successful login
+    db.clear_failed_logins(credentials.email)
 
     # Update last login
     db.update_last_login(user_id)
@@ -169,9 +231,9 @@ async def logout(
 
     Invalidates the current access token.
     """
-    # Note: We don't have the token in the user dict, but we could
-    # invalidate all sessions for the user as a workaround
-    # For now, just log the logout
+    token = user.get("_session_token")
+    if token:
+        db.invalidate_session(token)
     logger.info(f"User logged out: {user['email']}")
 
     return None
@@ -214,6 +276,50 @@ async def get_current_user_profile(
     )
 
 
+@router.post(
+    "/password/change",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        401: {"model": ErrorResponse, "description": "Current password incorrect"},
+    },
+)
+async def change_password(
+    request: PasswordChangeRequest,
+    user: Dict = Depends(get_current_user),
+    db: AuthDB = Depends(get_db),
+):
+    """
+    Change the current user's password.
+
+    Requires the current password for verification.
+    Invalidates all other sessions for security.
+    """
+    user_id = str(user["user_id"])
+    full_user = db.get_user_by_id(user_id)
+
+    if not verify_password(request.current_password, full_user["password_hash"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect",
+        )
+
+    # Update password
+    new_hash = hash_password(request.new_password)
+    db.update_password(user_id, new_hash)
+
+    # Invalidate all other sessions for security (keep current session active)
+    current_token = user.get("_session_token")
+    db.invalidate_all_sessions(user_id)
+
+    # Re-create the current session so user stays logged in
+    if current_token:
+        db.create_session(user_id, expires_hours=24)
+
+    logger.info(f"Password changed for user: {user['email']}")
+
+    return None
+
+
 @router.get("/usage", response_model=UsageStats)
 async def get_usage_stats(
     user: Dict = Depends(get_current_user),
@@ -242,15 +348,27 @@ async def setup_mfa_endpoint(
 
     Returns a QR code and secret for authenticator app setup.
     MFA is not active until verified with /mfa/verify.
+
+    The secret is stored temporarily (10 minutes) until verification.
     """
+    user_id = str(user["user_id"])
     email = user["email"]
+
+    # Check if MFA is already enabled
+    full_user = db.get_user_by_id(user_id)
+    if full_user and full_user["mfa_enabled"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="MFA is already enabled. Disable it first to set up a new authenticator.",
+        )
 
     # Generate TOTP secret and QR code
     secret, uri, qr_base64 = setup_mfa(email, issuer="KERBERUS")
 
-    # Store secret temporarily (not enabled until verified)
-    # In production, store in a temporary table or cache
-    # For now, we'll require immediate verification
+    # Store secret temporarily in Redis (expires in 10 minutes)
+    store_pending_mfa_secret(user_id, secret)
+
+    logger.info(f"MFA setup initiated for user: {email}")
 
     return MFASetupResponse(
         secret=secret,
@@ -259,10 +377,9 @@ async def setup_mfa_endpoint(
     )
 
 
-@router.post("/mfa/verify", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/mfa/verify", response_model=MFAVerifyResponse)
 async def verify_mfa_setup(
     verification: MFAVerifyRequest,
-    secret: str,  # In production, get from temp storage
     user: Dict = Depends(get_current_user),
     db: AuthDB = Depends(get_db),
 ):
@@ -270,21 +387,42 @@ async def verify_mfa_setup(
     Verify MFA setup and enable it.
 
     Requires the TOTP code from the authenticator app.
+    Returns backup codes for account recovery - store these securely!
     """
-    # Verify the code
-    if not verify_totp(secret, verification.totp_code):
+    user_id = str(user["user_id"])
+
+    # Retrieve pending secret from Redis
+    secret = get_pending_mfa_secret(user_id)
+
+    if not secret:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid verification code",
+            detail="No pending MFA setup found. Please call /mfa/setup first.",
+        )
+
+    # Verify the code
+    if not verify_totp(secret, verification.totp_code):
+        # Store the secret back so user can retry
+        store_pending_mfa_secret(user_id, secret)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid verification code. Please try again.",
         )
 
     # Enable MFA
-    user_id = str(user["user_id"])
     db.update_totp_secret(user_id, secret)
+
+    # Generate and store backup codes
+    backup_codes = generate_backup_codes(count=8)
+    hashed_codes = hash_backup_codes(backup_codes)
+    db.store_backup_codes(user_id, hashed_codes)
 
     logger.info(f"MFA enabled for user: {user['email']}")
 
-    return None
+    return MFAVerifyResponse(
+        message="MFA enabled successfully. Store your backup codes securely!",
+        backup_codes=backup_codes,
+    )
 
 
 @router.delete("/mfa", status_code=status.HTTP_204_NO_CONTENT)
@@ -314,8 +452,10 @@ async def disable_mfa(
             detail="Invalid verification code",
         )
 
-    # Disable MFA
-    db.update_totp_secret(str(user["user_id"]), None)
+    # Disable MFA and clear backup codes
+    user_id = str(user["user_id"])
+    db.update_totp_secret(user_id, None)
+    db.store_backup_codes(user_id, [])  # Clear backup codes
 
     logger.info(f"MFA disabled for user: {user['email']}")
 

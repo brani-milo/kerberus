@@ -667,6 +667,80 @@ class AuthDB:
             )
         logger.info(f"Updated MFA for user {user_id}: enabled={totp_secret is not None}")
 
+    def store_backup_codes(self, user_id: str, hashed_codes: List[str]) -> None:
+        """
+        Store hashed backup codes for MFA recovery.
+
+        Args:
+            user_id: UUID of user.
+            hashed_codes: List of bcrypt-hashed backup codes.
+        """
+        codes_json = json.dumps(hashed_codes)
+        with self.get_session() as session:
+            session.execute(
+                text("""
+                    UPDATE users
+                    SET backup_codes = :backup_codes,
+                        updated_at = :now
+                    WHERE user_id = :user_id
+                """),
+                {
+                    "user_id": user_id,
+                    "backup_codes": codes_json,
+                    "now": datetime.now(timezone.utc)
+                }
+            )
+        logger.info(f"Stored {len(hashed_codes)} backup codes for user {user_id}")
+
+    def get_backup_codes(self, user_id: str) -> List[str]:
+        """
+        Get hashed backup codes for a user.
+
+        Args:
+            user_id: UUID of user.
+
+        Returns:
+            List of hashed backup codes.
+        """
+        with self.get_session() as session:
+            result = session.execute(
+                text("SELECT backup_codes FROM users WHERE user_id = :user_id"),
+                {"user_id": user_id}
+            ).fetchone()
+
+            if not result or not result[0]:
+                return []
+
+            return json.loads(result[0])
+
+    def remove_backup_code(self, user_id: str, code_index: int) -> None:
+        """
+        Remove a used backup code by index.
+
+        Args:
+            user_id: UUID of user.
+            code_index: Index of the code to remove.
+        """
+        codes = self.get_backup_codes(user_id)
+        if 0 <= code_index < len(codes):
+            codes.pop(code_index)
+            codes_json = json.dumps(codes) if codes else None
+            with self.get_session() as session:
+                session.execute(
+                    text("""
+                        UPDATE users
+                        SET backup_codes = :backup_codes,
+                            updated_at = :now
+                        WHERE user_id = :user_id
+                    """),
+                    {
+                        "user_id": user_id,
+                        "backup_codes": codes_json,
+                        "now": datetime.now(timezone.utc)
+                    }
+                )
+            logger.info(f"Removed backup code for user {user_id}, {len(codes)} remaining")
+
     def update_password(self, user_id: str, new_password_hash: str) -> None:
         """
         Update user's password hash.
@@ -741,6 +815,76 @@ class AuthDB:
         return count
 
     # ==========================================
+    # Failed Login Tracking
+    # ==========================================
+
+    def record_failed_login(self, email: str) -> int:
+        """
+        Record a failed login attempt for an email.
+
+        Args:
+            email: Email address that failed login.
+
+        Returns:
+            Current count of failed attempts in the lockout window.
+        """
+        now = datetime.now(timezone.utc)
+        email_lower = email.lower().strip()
+
+        with self.get_session() as session:
+            session.execute(
+                text("""
+                    INSERT INTO failed_logins (email, attempted_at)
+                    VALUES (:email, :attempted_at)
+                """),
+                {"email": email_lower, "attempted_at": now}
+            )
+
+        return self.get_failed_login_count(email)
+
+    def get_failed_login_count(self, email: str, window_minutes: int = 15) -> int:
+        """
+        Get the count of failed login attempts within the lockout window.
+
+        Args:
+            email: Email address to check.
+            window_minutes: Lockout window in minutes (default 15).
+
+        Returns:
+            Number of failed attempts in the window.
+        """
+        now = datetime.now(timezone.utc)
+        window_start = now - timedelta(minutes=window_minutes)
+        email_lower = email.lower().strip()
+
+        with self.get_session() as session:
+            result = session.execute(
+                text("""
+                    SELECT COUNT(*) FROM failed_logins
+                    WHERE email = :email AND attempted_at > :window_start
+                """),
+                {"email": email_lower, "window_start": window_start}
+            ).fetchone()
+
+            return result[0] if result else 0
+
+    def clear_failed_logins(self, email: str) -> None:
+        """
+        Clear failed login attempts for an email (after successful login).
+
+        Args:
+            email: Email address to clear.
+        """
+        email_lower = email.lower().strip()
+
+        with self.get_session() as session:
+            session.execute(
+                text("DELETE FROM failed_logins WHERE email = :email"),
+                {"email": email_lower}
+            )
+        logger.debug(f"Cleared failed login attempts for {email_lower}")
+
+    # ==========================================
     # Schema Initialization
     # ==========================================
 
@@ -758,6 +902,7 @@ class AuthDB:
                     email VARCHAR(255) UNIQUE NOT NULL,
                     password_hash VARCHAR(255) NOT NULL,
                     totp_secret VARCHAR(64),
+                    backup_codes TEXT,
                     is_active BOOLEAN DEFAULT TRUE,
                     mfa_enabled BOOLEAN DEFAULT FALSE,
                     last_login TIMESTAMP WITH TIME ZONE,
@@ -815,6 +960,15 @@ class AuthDB:
                 )
             """))
 
+            # Failed logins table (for account lockout)
+            session.execute(text("""
+                CREATE TABLE IF NOT EXISTS failed_logins (
+                    id SERIAL PRIMARY KEY,
+                    email VARCHAR(255) NOT NULL,
+                    attempted_at TIMESTAMP WITH TIME ZONE NOT NULL
+                )
+            """))
+
             # Create indexes
             session.execute(text("""
                 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)
@@ -828,8 +982,39 @@ class AuthDB:
             session.execute(text("""
                 CREATE INDEX IF NOT EXISTS idx_token_usage_created ON token_usage(created_at)
             """))
+            session.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_failed_logins_email ON failed_logins(email, attempted_at)
+            """))
 
         logger.info("Database schema initialized")
+
+    def migrate_add_backup_codes_column(self) -> bool:
+        """
+        Migration: Add backup_codes column to users table if it doesn't exist.
+
+        Safe to call multiple times - only adds column if missing.
+
+        Returns:
+            True if migration was applied, False if column already existed.
+        """
+        with self.get_session() as session:
+            # Check if column exists
+            result = session.execute(text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'backup_codes'
+            """)).fetchone()
+
+            if result:
+                logger.debug("backup_codes column already exists")
+                return False
+
+            # Add the column
+            session.execute(text("""
+                ALTER TABLE users ADD COLUMN backup_codes TEXT
+            """))
+            logger.info("Added backup_codes column to users table")
+            return True
 
 
 # ==========================================

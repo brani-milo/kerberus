@@ -116,13 +116,21 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Request timing middleware
+    # Security headers middleware
     @app.middleware("http")
-    async def add_process_time_header(request: Request, call_next):
+    async def add_security_headers(request: Request, call_next):
         start_time = time.time()
         response = await call_next(request)
         process_time = (time.time() - start_time) * 1000
         response.headers["X-Process-Time-Ms"] = f"{process_time:.2f}"
+        # Security headers
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        # CSP for API (restrictive)
+        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
         return response
 
     # Exception handlers
