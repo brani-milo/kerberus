@@ -53,6 +53,10 @@ I chose to open-source this reference implementation because:
 
 ## 🏗️ Architecture
 
+<div align="center">
+  <img src="assets/dataflow.png" alt="KERBERUS Dataflow Architecture" width="800"/>
+</div>
+
 ### **Core Components**
 
 **Infrastructure:**
@@ -80,19 +84,34 @@ User Query → Mistral 1 (Guard) → Search → Mistral 2 (Reformulate) → Qwen
 - **Deep Search Scaling** - Retrieves 250+ candidates per lane and de-duplicates chunks to ensure 15+ unique decisions in context
 - **Full document retrieval** - When a chunk matches, fetches complete decision for context
 
-**Cost Optimization:**
+<div align="center">
+  <img src="assets/triad_search.png" alt="Triad Search Strategy" width="600"/>
+</div>
 
-Standard RAG systems accumulate context, causing exponential token costs. KERBERUS implements **dynamic context swapping** (the "Sliding Window of Truth" pattern):
+### 💰 Cost & Context Optimization: The "Sliding Window"
+Standard RAG systems suffer from **"Context Poisoning"**: they blindly append new retrieved documents to the chat history.
+* **The Problem:** If a user asks about *Theft* (Turn 1) and then *Sick Leave* (Turn 2), a standard RAG keeps the "Theft" laws in the context window. The LLM gets confused by conflicting regulations and token costs double.
+* **The Kerberus Solution:** We decouple **Conversational Memory** from **Knowledge Retrieval**.
+
+**The Mechanism:**
+1.  **Chat History (Immutable):** We keep the full dialogue (`User: "Can I fire him?"`) so the LLM understands pronouns like "him" refer to the employee discussed in Turn 1.
+2.  **Reference Context (Ephemeral):** We **swap** the legal documents completely for every new turn.
+
+**Real-World Example:**
 ```python
-# Keep: Chat history (lightweight)
-chat_history = ["Can I fire employee?", "Yes, if immediate cause..."]
+# --- Turn 1: User asks "Can I fire an employee for stealing?" ---
+# Chat History: ["User: Fire for stealing?"]
+# Retrieved Context: [Art. 337 OR (Immediate Dismissal)]
+# Result: LLM answers regarding theft.
 
-# Swap: Legal context (replaced each turn)
-turn_1: [Art. 337 OR, BGE 140 III 348]
-turn_2: [Art. 336 OR, TI_2023_045]  # Previous context discarded
-```
+# --- Turn 2: User asks "What if he is on sick leave?" ---
+# 1. We read History -> We know "he" = the employee from Turn 1.
+# 2. We SEARCH for "Sick Leave" laws.
+# 3. We SWAP the context:
+#    - REMOVE: [Art. 337 OR] (Theft rules are now irrelevant noise)
+#    - INSERT: [Art. 336c OR] (Protection against termination at untimely execution)
 
-This prevents token bloat while maintaining conversation quality - the same pattern used by Anthropic, OpenAI, and Perplexity.
+# Result: High precision, zero token bloat, no conflicting legal contexts.
 
 **Data Ingestion:**
 - Incremental scraping with state management
@@ -192,6 +211,11 @@ This ensures recent, authoritative precedents surface first while maintaining se
   - Automatic query scrubbing before LLM processing
   - API endpoints for PII checking and scrubbing
   - Configurable entity types and confidence thresholds
+- **Dossier API** (Document Management)
+  - Upload documents (PDF, DOCX, TXT) to encrypted storage
+  - Automatic parsing, chunking, and embedding
+  - PII scrubbing before storage
+  - Hybrid search across user's documents
 
 ## 🛠️ Usage
 
@@ -226,6 +250,11 @@ python scripts/test_search.py
 ```
 
 ### **REST API**
+
+<div align="center">
+  <img src="assets/fastapi.png" alt="FastAPI Documentation" width="800"/>
+</div>
+
 Start the FastAPI server:
 ```bash
 # Development (with hot reload)
@@ -246,6 +275,12 @@ API endpoints available at `http://localhost:8000`:
 - `POST /chat/stream` - Streaming analysis (SSE)
 - `POST /security/pii/check` - Check text for PII
 - `POST /security/pii/scrub` - Scrub PII from text
+- `POST /dossier/documents` - Upload document to encrypted dossier
+- `POST /dossier/documents/list` - List user's documents
+- `POST /dossier/documents/{id}` - Get document details
+- `DELETE /dossier/documents/{id}` - Delete document
+- `POST /dossier/search` - Search user's dossier
+- `POST /dossier/stats` - Get dossier statistics
 - `GET /docs` - OpenAPI documentation
 
 ## 🎥 Demo
