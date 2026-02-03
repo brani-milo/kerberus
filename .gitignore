@@ -129,3 +129,7 @@ temp/
 commit_script.sh
 tracked_files.txt
 docs/INTERNAL.md
+
+# Chainlit runtime
+.files/
+frontend/.files/

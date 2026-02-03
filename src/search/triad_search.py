@@ -128,7 +128,6 @@ class TriadSearch:
                 collection_name=collection_name,
                 dense_vector=query_vectors['dense'],
                 sparse_vector=query_vectors['sparse'],
-                sparse_vector=query_vectors['sparse'],
                 limit=250,
                 filters=lane_filters
             )
@@ -225,8 +224,6 @@ class TriadSearch:
                 try:
                     results = self.vector_db.search_hybrid(
                         collection_name=col,
-                        dense_vector=query_vectors['dense'],
-                        sparse_vector=query_vectors['sparse'],
                         dense_vector=query_vectors['dense'],
                         sparse_vector=query_vectors['sparse'],
                         limit=125,  # 125 per collection = 250 total (if 2 cols)

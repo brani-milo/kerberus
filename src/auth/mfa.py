@@ -3,12 +3,15 @@ Multi-Factor Authentication (MFA) utilities for KERBERUS.
 
 Implements TOTP (Time-based One-Time Password) using RFC 6238.
 Compatible with Google Authenticator, Authy, and other TOTP apps.
+
+Also provides backup code generation and verification for account recovery.
 """
 import base64
 import io
 import secrets
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 
+import bcrypt
 import pyotp
 import qrcode
 
@@ -144,7 +147,7 @@ def setup_mfa(email: str, issuer: str = "KERBERUS") -> Tuple[str, str, str]:
     return secret, uri, qr_base64
 
 
-def generate_backup_codes(count: int = 8, length: int = 8) -> list[str]:
+def generate_backup_codes(count: int = 8, length: int = 8) -> List[str]:
     """
     Generate backup codes for account recovery.
 
@@ -166,3 +169,71 @@ def generate_backup_codes(count: int = 8, length: int = 8) -> list[str]:
         codes.append(formatted)
 
     return codes
+
+
+def hash_backup_code(code: str) -> str:
+    """
+    Hash a backup code for secure storage.
+
+    Args:
+        code: Plain text backup code (e.g., "A1B2-C3D4").
+
+    Returns:
+        Bcrypt hash of the normalized code.
+    """
+    # Normalize: remove dashes and convert to uppercase
+    normalized = code.replace("-", "").upper()
+    salt = bcrypt.gensalt(rounds=10)  # Slightly lower than password for performance
+    return bcrypt.hashpw(normalized.encode('utf-8'), salt).decode('utf-8')
+
+
+def hash_backup_codes(codes: List[str]) -> List[str]:
+    """
+    Hash a list of backup codes for storage.
+
+    Args:
+        codes: List of plain text backup codes.
+
+    Returns:
+        List of bcrypt hashes.
+    """
+    return [hash_backup_code(code) for code in codes]
+
+
+def verify_backup_code(code: str, hashed_code: str) -> bool:
+    """
+    Verify a backup code against its hash.
+
+    Args:
+        code: Plain text backup code entered by user.
+        hashed_code: Stored bcrypt hash.
+
+    Returns:
+        True if code matches, False otherwise.
+    """
+    # Normalize: remove dashes/spaces and convert to uppercase
+    normalized = code.replace("-", "").replace(" ", "").upper()
+    try:
+        return bcrypt.checkpw(
+            normalized.encode('utf-8'),
+            hashed_code.encode('utf-8')
+        )
+    except Exception:
+        return False
+
+
+def find_matching_backup_code(code: str, hashed_codes: List[str]) -> Optional[int]:
+    """
+    Find the index of a matching backup code.
+
+    Args:
+        code: Plain text backup code entered by user.
+        hashed_codes: List of stored bcrypt hashes.
+
+    Returns:
+        Index of the matching code, or None if not found.
+    """
+    for i, hashed in enumerate(hashed_codes):
+        if verify_backup_code(code, hashed):
+            return i
+    return None

@@ -8,11 +8,17 @@ Two Modes:
 2. Tabular Review: Upload docs, extract table, chat with data
 
 Switch modes using the action buttons.
+
+Authentication:
+- Password-based login with MFA (TOTP)
+- Rate limiting per user
+- Session management via PostgreSQL
 """
 
 import os
 import asyncio
 import logging
+import base64
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -38,6 +44,11 @@ from src.review import (
 )
 from src.review.review_manager import Review
 
+# Auth imports
+from src.database.auth_db import get_auth_db, verify_password, hash_password
+from src.auth.mfa import verify_totp, find_matching_backup_code, setup_mfa, generate_backup_codes, hash_backup_codes
+from src.api.deps import get_rate_limiter, store_pending_mfa_secret
+
 logger = logging.getLogger(__name__)
 
 # Global instances (initialized lazily)
@@ -50,7 +61,161 @@ doc_processor = None
 review_manager = None
 excel_exporter = None
 
+# Auth components
+auth_db = None
+rate_limiter = None
+
 MAX_DOCUMENTS = 30
+
+
+# =============================================================================
+# AUTHENTICATION
+# =============================================================================
+
+def get_auth_components():
+    """Initialize auth components lazily."""
+    global auth_db, rate_limiter
+    if auth_db is None:
+        auth_db = get_auth_db()
+    if rate_limiter is None:
+        rate_limiter = get_rate_limiter()
+    return auth_db, rate_limiter
+
+
+@cl.password_auth_callback
+async def auth_callback(username: str, password: str) -> Optional[cl.User]:
+    """
+    Authenticate user with email/password.
+
+    - If user exists: verify password and log in
+    - If user doesn't exist: register them automatically
+    - If MFA is enabled: trigger MFA verification flow
+    """
+    db, _ = get_auth_components()
+
+    try:
+        user = db.get_user_by_email(username)
+
+        # User doesn't exist - register them
+        if user is None:
+            # Validate password length
+            if len(password) < 8:
+                logger.warning(f"Registration failed: password too short for {username}")
+                return None
+
+            # Validate email format (basic check)
+            if "@" not in username or "." not in username:
+                logger.warning(f"Registration failed: invalid email {username}")
+                return None
+
+            # Create new user
+            try:
+                password_hash_value = hash_password(password)
+                user_id = db.create_user(username, password_hash_value)
+                # Don't create session yet - require MFA setup first
+                db.update_last_login(user_id)
+
+                logger.info(f"New user registered: {username}")
+
+                return cl.User(
+                    identifier=username,
+                    metadata={
+                        "user_id": user_id,
+                        "email": username,
+                        "mfa_required": False,
+                        "mfa_verified": True,
+                        "mfa_setup_required": True,
+                        "is_new_user": True,
+                    }
+                )
+            except Exception as reg_error:
+                logger.error(f"Registration error: {reg_error}")
+                return None
+
+        # User exists - verify password
+        if not user["is_active"]:
+            return None
+
+        if not verify_password(password, user["password_hash"]):
+            return None
+
+        user_id = str(user["user_id"])
+
+        # If MFA is enabled, we need to verify TOTP before granting access
+        if user["mfa_enabled"]:
+            # Return user with MFA pending flag
+            # The on_chat_start will handle MFA verification
+            return cl.User(
+                identifier=user["email"],
+                metadata={
+                    "user_id": user_id,
+                    "email": user["email"],
+                    "mfa_required": True,
+                    "mfa_verified": False,
+                    "totp_secret": user["totp_secret"],
+                }
+            )
+
+        # No MFA enabled - user must set up MFA before accessing the app
+        # Don't create session yet - require MFA setup first
+        logger.info(f"User {user['email']} logged in but MFA not enabled - requiring setup")
+
+        return cl.User(
+            identifier=user["email"],
+            metadata={
+                "user_id": user_id,
+                "email": user["email"],
+                "mfa_required": False,
+                "mfa_verified": True,
+                "mfa_setup_required": True,  # Flag to require MFA setup
+                "is_new_user": False,
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Auth error: {e}")
+        return None
+
+
+async def verify_mfa_code(user_metadata: dict, code: str) -> bool:
+    """
+    Verify MFA code (TOTP or backup code).
+
+    Returns True if verified, False otherwise.
+    """
+    db, _ = get_auth_components()
+    user_id = user_metadata["user_id"]
+    totp_secret = user_metadata.get("totp_secret")
+
+    # Try TOTP first
+    if verify_totp(totp_secret, code):
+        return True
+
+    # Try backup code
+    hashed_codes = db.get_backup_codes(user_id)
+    code_index = find_matching_backup_code(code, hashed_codes)
+    if code_index is not None:
+        db.remove_backup_code(user_id, code_index)
+        logger.info(f"Backup code used for user {user_id}")
+        return True
+
+    return False
+
+
+async def complete_mfa_login(user: cl.User) -> None:
+    """Complete login after MFA verification."""
+    db, _ = get_auth_components()
+    user_id = user.metadata["user_id"]
+
+    # Create session
+    session_token = db.create_session(user_id, expires_hours=24)
+    db.update_last_login(user_id)
+
+    # Update user metadata
+    user.metadata["session_token"] = session_token
+    user.metadata["mfa_verified"] = True
+
+    logger.info(f"MFA verified for user: {user.identifier}")
 
 
 # =============================================================================
@@ -205,6 +370,87 @@ def get_mode_buttons(current_mode: str = None) -> List[cl.Action]:
     return buttons
 
 
+async def handle_mfa_verification(code: str):
+    """Handle MFA code verification."""
+    user = cl.user_session.get("user")
+
+    if not user:
+        await cl.Message(content="❌ Session expired. Please log in again.").send()
+        return
+
+    # Clean the code (remove spaces, dashes for TOTP)
+    clean_code = code.strip()
+
+    # Verify the code
+    if await verify_mfa_code(user.metadata, clean_code):
+        # Complete the login
+        await complete_mfa_login(user)
+
+        # Show success and continue to main app
+        await cl.Message(content="✅ **Authentication successful!**\n\n_Loading KERBERUS..._").send()
+
+        # Reset mode and show welcome
+        cl.user_session.set("mode", "start")
+
+        # Initialize components and show welcome
+        global triad_search, pipeline, context_assembler
+        global doc_processor, review_manager, excel_exporter
+
+        if triad_search is None:
+            triad_search = TriadSearch()
+        if pipeline is None:
+            pipeline = get_pipeline()
+        if context_assembler is None:
+            context_assembler = ContextAssembler()
+        if doc_processor is None:
+            doc_processor = DocumentProcessor()
+        if review_manager is None:
+            review_manager = ReviewManager(storage_path="data/reviews")
+        if excel_exporter is None:
+            excel_exporter = ExcelExporter()
+
+        cl.user_session.set("chat_history", [])
+        cl.user_session.set("current_review", None)
+        cl.user_session.set("documents", [])
+
+        # Show welcome message
+        actions = [
+            cl.Action(name="mode_assistant", payload={"mode": "assistant"}, label="⚖️ AI Legal Assistant"),
+            cl.Action(name="mode_review", payload={"mode": "review"}, label="📊 Tabular Review"),
+        ]
+
+        await cl.Message(
+            content=f"""# 🛡️ **KERBERUS** - Swiss Legal Intelligence
+
+Welcome, **{user.identifier}**!
+
+---
+
+## Choose Your Mode:
+
+### ⚖️ AI Legal Assistant
+Ask legal questions in German, French, or Italian. Get answers with citations from Swiss laws and court decisions.
+
+### 📊 Tabular Review
+Upload up to 30 documents (PDF, DOCX, TXT). AI extracts structured data into a table. Chat with your data and export to Excel.
+
+---
+
+_Click a button below to begin:_""",
+            actions=actions
+        ).send()
+
+    else:
+        # Invalid code
+        await cl.Message(
+            content="""❌ **Invalid code**
+
+Please check your authenticator app and try again.
+
+_Make sure to enter the current 6-digit code, or use a backup code (format: XXXX-XXXX)._"""
+        ).send()
+
+
 # =============================================================================
 # CHAT START
 # =============================================================================
@@ -213,6 +459,19 @@ def get_mode_buttons(current_mode: str = None) -> List[cl.Action]:
 async def on_chat_start():
     global triad_search, pipeline, context_assembler
     global doc_processor, review_manager, excel_exporter
+
+    # Check if user needs MFA verification
+    user = cl.user_session.get("user")
+    if user and user.metadata.get("mfa_required") and not user.metadata.get("mfa_verified"):
+        cl.user_session.set("mode", "mfa_pending")
+        await cl.Message(
+            content="""# 🔐 Two-Factor Authentication Required
+
+Please enter your 6-digit code from your authenticator app.
+
+_Or enter a backup code (format: XXXX-XXXX) if you don't have access to your authenticator._"""
+        ).send()
+        return
 
     # Initialize search components lazily
     if triad_search is None:
@@ -236,7 +495,55 @@ async def on_chat_start():
     cl.user_session.set("current_review", None)
     cl.user_session.set("documents", [])
 
-    # Welcome message with mode buttons
+    # Get user info for personalized welcome
+    user = cl.user_session.get("user")
+    user_email = user.identifier if user else "Guest"
+    is_new_user = user.metadata.get("is_new_user", False) if user else False
+    mfa_setup_required = user.metadata.get("mfa_setup_required", False) if user else False
+    has_mfa_enabled = user.metadata.get("mfa_required", False) if user else False
+
+    # ALL USERS WITHOUT MFA MUST SET IT UP FIRST
+    if user and (is_new_user or mfa_setup_required) and not has_mfa_enabled:
+        cl.user_session.set("mode", "mfa_setup_required")
+
+        if is_new_user:
+            welcome_text = f"""# 🛡️ **KERBERUS** - Swiss Legal Intelligence
+
+## Welcome, {user_email}! 🎉
+
+Your account has been created successfully.
+
+---
+
+## 🔐 Security Setup Required
+
+To protect your account and comply with legal data security requirements, **Two-Factor Authentication (2FA) is mandatory**.
+
+Please set up 2FA now to continue using KERBERUS."""
+        else:
+            welcome_text = f"""# 🛡️ **KERBERUS** - Swiss Legal Intelligence
+
+## Welcome back, {user_email}!
+
+---
+
+## 🔐 Security Setup Required
+
+Your account does not have Two-Factor Authentication (2FA) enabled.
+
+To protect your account and comply with legal data security requirements, **2FA is mandatory**.
+
+Please set up 2FA now to continue using KERBERUS."""
+
+        await cl.Message(
+            content=welcome_text,
+            actions=[
+                cl.Action(name="setup_mfa", payload={"action": "setup_mfa"}, label="🔐 Setup Two-Factor Authentication")
+            ]
+        ).send()
+        return
+
+    # Welcome message with mode buttons for authenticated users
     actions = [
         cl.Action(
             name="mode_assistant",
@@ -250,10 +557,9 @@ async def on_chat_start():
         ),
     ]
 
-    await cl.Message(
-        content="""# 🛡️ **KERBERUS** - Swiss Legal Intelligence
+    welcome_text = f"""# 🛡️ **KERBERUS** - Swiss Legal Intelligence
 
-Welcome! I am your AI legal assistant for Swiss law.
+Welcome back, **{user_email}**!
 
 ---
 
@@ -267,7 +573,10 @@ Upload up to 30 documents (PDF, DOCX, TXT). AI extracts structured data into a t
 
 ---
 
-_Click a button below to begin:_""",
+_Click a button below to begin:_"""
+
+    await cl.Message(
+        content=welcome_text,
         actions=actions
     ).send()
 
@@ -341,6 +650,174 @@ async def on_action_review(action: cl.Action):
     await switch_to_review_mode()
 
 
+@cl.action_callback("setup_mfa")
+async def on_action_setup_mfa(action: cl.Action):
+    """Handle MFA setup button click."""
+    await action.remove()
+    await start_mfa_setup()
+
+
+@cl.action_callback("confirm_mfa")
+async def on_action_confirm_mfa(action: cl.Action):
+    """Handle MFA confirmation."""
+    await action.remove()
+    cl.user_session.set("mode", "mfa_setup_verify")
+    await cl.Message(
+        content="Please enter the **6-digit code** from your authenticator app to verify setup:"
+    ).send()
+
+
+@cl.action_callback("cancel_mfa")
+async def on_action_cancel_mfa(action: cl.Action):
+    """Handle MFA setup cancellation."""
+    await action.remove()
+    cl.user_session.set("mode", "start")
+    cl.user_session.set("pending_mfa_secret", None)
+    await cl.Message(content="MFA setup cancelled. You can set it up later from the welcome screen.").send()
+
+
+async def handle_mfa_setup_verification(code: str):
+    """Handle MFA setup code verification."""
+    user = cl.user_session.get("user")
+    pending_secret = cl.user_session.get("pending_mfa_secret")
+
+    if not user or not pending_secret:
+        await cl.Message(content="❌ MFA setup session expired. Please try again.").send()
+        cl.user_session.set("mode", "start")
+        return
+
+    # Clean the code
+    clean_code = code.strip().replace(" ", "")
+
+    # Verify the code
+    if verify_totp(pending_secret, clean_code):
+        db, _ = get_auth_components()
+        user_id = user.metadata["user_id"]
+
+        # Enable MFA
+        db.update_totp_secret(user_id, pending_secret)
+
+        # Generate and store backup codes
+        backup_codes = generate_backup_codes(count=8)
+        hashed_codes = hash_backup_codes(backup_codes)
+        db.store_backup_codes(user_id, hashed_codes)
+
+        # Clear pending secret
+        cl.user_session.set("pending_mfa_secret", None)
+        cl.user_session.set("mode", "start")
+
+        # Create session now that MFA is set up
+        session_token = db.create_session(user_id, expires_hours=24)
+
+        # Update user metadata
+        user.metadata["mfa_required"] = True
+        user.metadata["mfa_verified"] = True
+        user.metadata["mfa_setup_required"] = False
+        user.metadata["session_token"] = session_token
+
+        # Show success with backup codes
+        codes_formatted = "\n".join([f"- `{code}`" for code in backup_codes])
+
+        await cl.Message(
+            content=f"""# ✅ Two-Factor Authentication Enabled!
+
+Your account is now protected with 2FA.
+
+## 🔑 Backup Codes
+
+**Save these codes in a safe place!** You can use them to log in if you lose access to your authenticator app. Each code can only be used once.
+
+{codes_formatted}
+
+---
+
+## Choose Your Mode:
+
+### ⚖️ AI Legal Assistant
+Ask legal questions in German, French, or Italian. Get answers with citations from Swiss laws and court decisions.
+
+### 📊 Tabular Review
+Upload up to 30 documents (PDF, DOCX, TXT). AI extracts structured data into a table.
+
+_Click a button below to begin:_""",
+            actions=[
+                cl.Action(name="mode_assistant", payload={"mode": "assistant"}, label="⚖️ AI Legal Assistant"),
+                cl.Action(name="mode_review", payload={"mode": "review"}, label="📊 Tabular Review"),
+            ]
+        ).send()
+
+        logger.info(f"MFA enabled for user: {user.identifier}")
+
+    else:
+        await cl.Message(
+            content="❌ **Invalid code.** Please check your authenticator app and try again."
+        ).send()
+
+
+async def start_mfa_setup():
+    """Start the MFA setup process."""
+    user = cl.user_session.get("user")
+    if not user:
+        await cl.Message(content="❌ Please log in first.").send()
+        return
+
+    db, _ = get_auth_components()
+    user_id = user.metadata["user_id"]
+
+    # Check if MFA already enabled
+    full_user = db.get_user_by_id(user_id)
+    if full_user and full_user["mfa_enabled"]:
+        await cl.Message(content="✅ MFA is already enabled on your account.").send()
+        return
+
+    # Generate TOTP secret
+    secret, uri, qr_base64 = setup_mfa(user.identifier, issuer="KERBERUS")
+
+    # Store pending secret in session
+    cl.user_session.set("pending_mfa_secret", secret)
+    cl.user_session.set("mode", "mfa_setup")
+
+    # Extract raw bytes from base64 data URI for cl.Image
+    # Format: "data:image/png;base64,<base64_data>"
+    if qr_base64.startswith("data:image/png;base64,"):
+        b64_data = qr_base64.split(",", 1)[1]
+        qr_bytes = base64.b64decode(b64_data)
+    else:
+        qr_bytes = base64.b64decode(qr_base64)
+
+    # Create QR code image element
+    qr_image = cl.Image(
+        name="mfa_qr_code.png",
+        content=qr_bytes,
+        display="inline",
+        size="large"
+    )
+
+    # Show QR code
+    actions = [
+        cl.Action(name="confirm_mfa", payload={}, label="✅ I've scanned it"),
+        cl.Action(name="cancel_mfa", payload={}, label="❌ Cancel"),
+    ]
+
+    await cl.Message(
+        content=f"""# 🔐 Setup Two-Factor Authentication
+
+Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.):""",
+        elements=[qr_image],
+        actions=actions
+    ).send()
+
+    # Send manual entry instructions separately for clarity
+    await cl.Message(
+        content=f"""**Or enter this secret manually:**
+`{secret}`
+
+---
+
+Once you've added it to your authenticator, click "I've scanned it" above and enter the 6-digit code to verify."""
+    ).send()
+
+
 # =============================================================================
 # MESSAGE HANDLER
 # =============================================================================
@@ -350,6 +827,26 @@ async def on_message(message: cl.Message):
     mode = cl.user_session.get("mode", "start")
     text = message.content.strip()
     lower_text = text.lower()
+
+    # Handle MFA verification (login)
+    if mode == "mfa_pending":
+        await handle_mfa_verification(text)
+        return
+
+    # Handle MFA setup verification
+    if mode == "mfa_setup_verify":
+        await handle_mfa_setup_verification(text)
+        return
+
+    # Block users who haven't set up MFA yet
+    if mode == "mfa_setup_required":
+        await cl.Message(
+            content="🔐 Please set up Two-Factor Authentication first to continue.",
+            actions=[
+                cl.Action(name="setup_mfa", payload={"action": "setup_mfa"}, label="🔐 Setup Two-Factor Authentication")
+            ]
+        ).send()
+        return
 
     # If still at start, prompt to select mode
     if mode == "start":
@@ -449,6 +946,28 @@ Type the **number** or **name** of the preset to start (e.g., "1" or "Contract R
 
 async def handle_assistant_message(message: cl.Message):
     global triad_search, pipeline
+
+    # Check rate limit
+    user = cl.user_session.get("user")
+    if user and user.metadata.get("user_id"):
+        _, rl = get_auth_components()
+        user_id = user.metadata["user_id"]
+        allowed, hourly_remaining, daily_remaining = rl.check_rate_limit(user_id)
+
+        if not allowed:
+            await cl.Message(
+                content=f"""⚠️ **Rate limit exceeded**
+
+You have reached your query limit.
+- Hourly remaining: {hourly_remaining}
+- Daily remaining: {daily_remaining}
+
+Please wait before making more queries, or contact support to increase your limit."""
+            ).send()
+            return
+
+        # Record this request
+        rl.record_request(user_id)
 
     settings = cl.user_session.get("filters") or {}
     chat_history = cl.user_session.get("chat_history") or []
@@ -649,7 +1168,7 @@ The search was successful. Please try again."""
             ).send()
 
         chat_history.append({"role": "user", "content": message.content})
-        chat_history.append({"role": "assistant", "content": response_text})
+        chat_history.append({"role": "assistant", "content": "".join(full_response)})
         cl.user_session.set("chat_history", chat_history[-10:])
 
     except Exception as e:

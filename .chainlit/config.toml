@@ -22,6 +22,11 @@ mask_user_env = false
 # Authorized origins
 allow_origins = ["*"]
 
+# Enable custom password authentication
+[project.auth]
+# Password authentication enabled
+password = true
+
 [features]
 # Process and display HTML in messages. Required for custom welcome screen styling.
 unsafe_allow_html = true

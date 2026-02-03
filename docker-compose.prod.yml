@@ -1,5 +1,3 @@
-version: '3.8'
-
 # ===========================================
 # KERBERUS Production Docker Compose
 # Uses Docker Secrets for sensitive data
