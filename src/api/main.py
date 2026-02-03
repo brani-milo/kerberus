@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
-from .routes import auth_router, chat_router, search_router, health_router
+from .routes import auth_router, chat_router, search_router, health_router, security_router
 from .models import ErrorResponse
 
 # Configure logging
@@ -167,6 +167,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(search_router)
     app.include_router(chat_router)
+    app.include_router(security_router)
 
     # Root endpoint
     @app.get("/", include_in_schema=False)

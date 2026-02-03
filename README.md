@@ -187,6 +187,11 @@ This ensures recent, authoritative precedents surface first while maintaining se
   - Password change endpoint with session management
   - Account lockout after failed login attempts (brute force protection)
   - IP-based rate limiting for authentication endpoints
+- **PII Detection & Scrubbing** (Presidio-based)
+  - Swiss-specific recognizers (AHV numbers, Swiss phone/IBAN)
+  - Automatic query scrubbing before LLM processing
+  - API endpoints for PII checking and scrubbing
+  - Configurable entity types and confidence thresholds
 
 ## 🛠️ Usage
 
@@ -239,6 +244,8 @@ API endpoints available at `http://localhost:8000`:
 - `POST /search` - Search laws and decisions
 - `POST /chat` - Full legal analysis
 - `POST /chat/stream` - Streaming analysis (SSE)
+- `POST /security/pii/check` - Check text for PII
+- `POST /security/pii/scrub` - Scrub PII from text
 - `GET /docs` - OpenAPI documentation
 
 ## 🎥 Demo
@@ -246,7 +253,6 @@ API endpoints available at `http://localhost:8000`:
 **Coming Soon:** Video walkthrough and hosted demo
 
 ### **🚧 In Progress**
-- PII detection and scrubbing (Presidio)
 - Production deployment on Infomaniak
 - Embedding pipeline (populate Qdrant with parsed data)
 
@@ -301,6 +307,7 @@ Requires replacing scrapers and adapting metadata schema for local court hierarc
 - **Session security** - Cryptographically secure tokens, automatic expiration, proper logout invalidation
 - **Brute force protection** - Account lockout after failed attempts, IP-based rate limiting
 - **Security headers** - X-Frame-Options, CSP, X-Content-Type-Options, Referrer-Policy
+- **PII detection & scrubbing** - Presidio-based with Swiss-specific recognizers (AHV, phone, IBAN)
 - **Swiss data sovereignty** - All infrastructure hosted in Switzerland (Infomaniak)
 - **GDPR compliant** - By design, no third-party tracking
 - **Password security** - bcrypt with 12 rounds, secure password verification, self-service password change

@@ -24,6 +24,7 @@ from ..deps import get_current_user, check_rate_limit, get_db
 from ...llm import get_pipeline, ContextAssembler
 from ...search.triad_search import TriadSearch
 from ...database.auth_db import AuthDB
+from ...security import get_pii_scrubber, PIIScrubber
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -78,6 +79,24 @@ async def chat(
     # Get pipeline and components
     pipeline = get_pipeline()
     triad = get_triad_search()
+    pii_scrubber = get_pii_scrubber()
+
+    # ============================================
+    # PII Detection & Scrubbing
+    # ============================================
+    original_query = chat_request.query
+    pii_detected = False
+    pii_types_found = []
+
+    if pii_scrubber.enabled:
+        # Detect PII in query
+        pii_entities = pii_scrubber.detect(original_query, language="de")
+        if pii_entities:
+            pii_detected = True
+            pii_types_found = list(set(e.entity_type for e in pii_entities))
+            # Scrub query before sending to LLM
+            chat_request.query = pii_scrubber.scrub(original_query, language="de")
+            logger.info(f"PII scrubbed from query: {pii_types_found}")
 
     # ============================================
     # STAGE 1: Guard & Enhance
@@ -301,7 +320,9 @@ async def chat(
                 "guard": guard_result.response.total_tokens if guard_result.response else 0,
                 "reformulate": reformulate_response.total_tokens if reformulate_response else 0,
                 "analyze": analysis_response.total_tokens if analysis_response else 0,
-            }
+            },
+            "pii_scrubbed": pii_detected,
+            "pii_types": pii_types_found if pii_detected else [],
         },
         processing_time_ms=processing_time,
     )
@@ -324,12 +345,25 @@ async def chat_stream(
 
         pipeline = get_pipeline()
         triad = get_triad_search()
+        pii_scrubber = get_pii_scrubber()
+
+        # PII scrubbing
+        query_to_process = chat_request.query
+        pii_detected = False
+
+        if pii_scrubber.enabled:
+            pii_entities = pii_scrubber.detect(query_to_process, language="de")
+            if pii_entities:
+                pii_detected = True
+                pii_types = [e.entity_type for e in pii_entities]
+                query_to_process = pii_scrubber.scrub(query_to_process, language="de")
+                yield f"data: {{'stage': 'pii', 'status': 'scrubbed', 'types': {pii_types}}}\n\n"
 
         # Stage 1: Guard & Enhance
         yield f"data: {{'stage': 'guard', 'status': 'processing'}}\n\n"
 
         try:
-            guard_result = pipeline.guard_and_enhance(chat_request.query)
+            guard_result = pipeline.guard_and_enhance(query_to_process)
         except Exception as e:
             yield f"data: {{'error': 'Guard stage failed: {str(e)}'}}\n\n"
             return
@@ -371,7 +405,7 @@ async def chat_stream(
 
         try:
             reformulated_query, _ = pipeline.reformulate(
-                original_query=chat_request.query,
+                original_query=query_to_process,
                 enhanced_query=guard_result.enhanced_query,
                 language=guard_result.detected_language,
                 law_count=len(codex_results),
