@@ -17,8 +17,9 @@ persist_user_env = false
 # Whether to mask user environment variables (API keys) in the UI with password type
 mask_user_env = false
 
-# Authorized origins
-allow_origins = ["*"]
+# Authorized origins (restrict in production via CHAINLIT_ALLOW_ORIGINS env var)
+# Default allows localhost for development; set to your domain in production
+allow_origins = ["http://localhost:8000", "http://localhost:3000", "https://kerberus.ch"]
 
 # Enable custom password authentication
 [project.auth]
