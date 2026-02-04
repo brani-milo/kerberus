@@ -12,6 +12,7 @@ Usage:
 """
 import os
 import time
+import uuid
 import logging
 from contextlib import asynccontextmanager
 
@@ -23,11 +24,27 @@ from fastapi.exceptions import RequestValidationError
 from .routes import auth_router, chat_router, search_router, health_router, security_router, dossier_router
 from .models import ErrorResponse
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+# Configure logging with request context support
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_FORMAT = os.getenv(
+    "LOG_FORMAT",
+    "%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] %(message)s"
 )
+
+# Custom filter to add request_id to all log records
+class RequestIdFilter(logging.Filter):
+    """Add request_id to log records."""
+    def filter(self, record):
+        if not hasattr(record, 'request_id'):
+            record.request_id = '-'
+        return True
+
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format=LOG_FORMAT,
+)
+# Add filter to root logger
+logging.getLogger().addFilter(RequestIdFilter())
 logger = logging.getLogger(__name__)
 
 # API metadata
@@ -116,13 +133,39 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Security headers middleware
+    # Request tracking and security headers middleware
     @app.middleware("http")
-    async def add_security_headers(request: Request, call_next):
+    async def add_request_tracking_and_security(request: Request, call_next):
+        # Generate or extract request ID for tracing
+        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4())[:8])
+
+        # Store in request state for access in route handlers
+        request.state.request_id = request_id
+
+        # Add to logging context
+        # Note: For async handlers, use contextvars in production
+
         start_time = time.time()
-        response = await call_next(request)
+
+        try:
+            response = await call_next(request)
+        except Exception as e:
+            logger.error(f"[{request_id}] Request failed: {e}", exc_info=True)
+            raise
+
         process_time = (time.time() - start_time) * 1000
+
+        # Request tracking headers
+        response.headers["X-Request-ID"] = request_id
         response.headers["X-Process-Time-Ms"] = f"{process_time:.2f}"
+
+        # Log request completion (skip health checks to reduce noise)
+        if not request.url.path.startswith("/health"):
+            logger.info(
+                f"[{request_id}] {request.method} {request.url.path} "
+                f"-> {response.status_code} ({process_time:.1f}ms)"
+            )
+
         # Security headers
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -152,11 +195,13 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def generic_exception_handler(request: Request, exc: Exception):
-        logger.error(f"Unhandled exception: {exc}", exc_info=True)
+        request_id = getattr(request.state, 'request_id', 'unknown')
+        logger.error(f"[{request_id}] Unhandled exception: {exc}", exc_info=True)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "error": "Internal Server Error",
+                "request_id": request_id,
                 "detail": str(exc) if os.getenv("APP_ENV") == "development" else None,
                 "code": "INTERNAL_ERROR",
             },

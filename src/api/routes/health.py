@@ -12,14 +12,14 @@ from fastapi import APIRouter, Depends
 from qdrant_client import QdrantClient
 
 from ..models import HealthStatus, ServiceHealth
-from ..deps import get_db
+from ..deps import get_db, get_redis_client
 from ...database.auth_db import AuthDB
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/health", tags=["Health"])
 
 # Version from environment or default
-VERSION = os.getenv("APP_VERSION", "0.1.0")
+VERSION = os.getenv("APP_VERSION", "0.2.2")
 
 
 @router.get("", response_model=HealthStatus)
@@ -57,6 +57,20 @@ async def health_check():
     except Exception as e:
         services["qdrant"] = f"unhealthy: {str(e)}"
         overall_healthy = False
+
+    # Check Redis
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            start = time.time()
+            redis_client.ping()
+            latency = (time.time() - start) * 1000
+            services["redis"] = f"healthy ({latency:.1f}ms)"
+        else:
+            services["redis"] = "fallback_mode (in-memory)"
+    except Exception as e:
+        services["redis"] = f"unhealthy: {str(e)}"
+        # Redis failure is not critical - we have in-memory fallback
 
     return HealthStatus(
         status="healthy" if overall_healthy else "unhealthy",
@@ -141,6 +155,30 @@ async def detailed_health():
     except Exception as e:
         checks.append(ServiceHealth(
             name="qdrant",
+            status="unhealthy",
+            error=str(e)
+        ))
+
+    # Redis
+    try:
+        start = time.time()
+        redis_client = get_redis_client()
+        if redis_client:
+            redis_client.ping()
+            latency = (time.time() - start) * 1000
+            checks.append(ServiceHealth(
+                name="redis",
+                status="healthy",
+                latency_ms=latency
+            ))
+        else:
+            checks.append(ServiceHealth(
+                name="redis",
+                status="fallback_mode"  # Using in-memory rate limiting
+            ))
+    except Exception as e:
+        checks.append(ServiceHealth(
+            name="redis",
             status="unhealthy",
             error=str(e)
         ))

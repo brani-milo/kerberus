@@ -96,6 +96,22 @@ class TestSecurityHeaders:
         process_time = float(response.headers["X-Process-Time-Ms"])
         assert process_time >= 0
 
+    def test_request_id_header(self):
+        """Test that X-Request-ID header is present for request tracing."""
+        client = TestClient(app)
+        response = client.get("/health")
+
+        assert "X-Request-ID" in response.headers
+        request_id = response.headers["X-Request-ID"]
+        assert len(request_id) == 8  # Short UUID format
+
+    def test_request_id_passthrough(self):
+        """Test that provided X-Request-ID is passed through."""
+        client = TestClient(app)
+        response = client.get("/health", headers={"X-Request-ID": "test1234"})
+
+        assert response.headers["X-Request-ID"] == "test1234"
+
 
 # ============================================
 # Session Invalidation Tests
