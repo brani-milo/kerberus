@@ -47,6 +47,9 @@ allow_thread_sharing = false
 # Enable favorite messages
 favorites = false
 
+# Enable thread history sidebar (requires data layer)
+thread_history = true
+
 [features.slack]
 reaction_on_message_received = false
 

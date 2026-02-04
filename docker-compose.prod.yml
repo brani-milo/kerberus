@@ -18,10 +18,12 @@ services:
       - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
       - LLM_API_KEY_FILE=/run/secrets/llm_api_key
       - CHAINLIT_AUTH_SECRET_FILE=/run/secrets/chainlit_auth_secret
+      - CONVERSATION_ENCRYPTION_KEY_FILE=/run/secrets/conversation_encryption_key
     secrets:
       - postgres_password
       - llm_api_key
       - chainlit_auth_secret
+      - conversation_encryption_key
     volumes:
       - dossier_data:/app/data/dossier
     depends_on:
@@ -44,8 +46,7 @@ services:
   qdrant:
     image: qdrant/qdrant:latest
     container_name: kerberus-qdrant
-    ports:
-      - "6333:6333"
+    # No external ports - only accessible via internal network
     volumes:
       - qdrant_storage:/qdrant/storage
     deploy:
@@ -118,6 +119,8 @@ secrets:
   llm_api_key:
     external: true
   chainlit_auth_secret:
+    external: true
+  conversation_encryption_key:
     external: true
 
 networks:

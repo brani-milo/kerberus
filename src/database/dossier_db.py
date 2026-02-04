@@ -127,8 +127,8 @@ class DossierDB:
         self._conn = sqlcipher.connect(str(self.db_path))
         cursor = self._conn.cursor()
 
-        # Set encryption key
-        cursor.execute(f"PRAGMA key = '{self._password}'")
+        # Set encryption key (parameterized to prevent SQL injection)
+        cursor.execute("PRAGMA key = ?", (self._password,))
         cursor.execute("PRAGMA cipher_compatibility = 4")
 
         # Verify connection (will fail if wrong password)

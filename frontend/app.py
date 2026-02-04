@@ -49,7 +49,36 @@ from src.database.auth_db import get_auth_db, verify_password, hash_password
 from src.auth.mfa import verify_totp, find_matching_backup_code, setup_mfa, generate_backup_codes, hash_backup_codes
 from src.api.deps import get_rate_limiter, store_pending_mfa_secret
 
+# Conversation persistence (encrypted)
+from src.database.encrypted_data_layer import get_encrypted_data_layer, EncryptedChainlitDataLayer
+
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# ENCRYPTED DATA LAYER FOR CONVERSATION PERSISTENCE
+# =============================================================================
+
+# Global data layer instance
+_data_layer: Optional[EncryptedChainlitDataLayer] = None
+
+
+def get_data_layer() -> Optional[EncryptedChainlitDataLayer]:
+    """Get data layer singleton, initializing if encryption key is available."""
+    global _data_layer
+    if _data_layer is None:
+        try:
+            _data_layer = get_encrypted_data_layer()
+            logger.info("Encrypted conversation data layer initialized")
+        except ValueError as e:
+            logger.warning(f"Conversation persistence disabled: {e}")
+            _data_layer = None
+    return _data_layer
+
+
+@cl.data_layer
+async def data_layer():
+    """Chainlit data layer provider - returns encrypted PostgreSQL storage."""
+    return get_data_layer()
 
 # Global instances (initialized lazily)
 triad_search = None
@@ -247,6 +276,55 @@ def get_search_confidence_indicator(confidence: str) -> str:
         "LOW": "🔴",
         "NONE": "⚪",
     }.get(confidence, "⚪")
+
+
+async def persist_messages(user_message: str, assistant_message: str) -> None:
+    """
+    Persist conversation messages to encrypted storage.
+
+    Creates a new thread if needed, or appends to existing thread.
+    """
+    data_layer = get_data_layer()
+    if not data_layer:
+        return  # Persistence disabled (no encryption key)
+
+    try:
+        user = cl.user_session.get("user")
+        if not user:
+            return
+
+        user_id = user.metadata.get("user_id", user.identifier)
+        thread_id = cl.user_session.get("thread_id")
+
+        # Create new thread if needed
+        if not thread_id:
+            # Generate thread name from first message
+            thread_name = user_message[:50] + "..." if len(user_message) > 50 else user_message
+            thread_id = await data_layer.create_thread(
+                user_id=user_id,
+                name=thread_name,
+                metadata={"mode": "assistant"}
+            )
+            cl.user_session.set("thread_id", thread_id)
+            logger.debug(f"Created new thread: {thread_id}")
+
+        # Save messages
+        await data_layer.create_message(
+            thread_id=thread_id,
+            role="user",
+            content=user_message
+        )
+        await data_layer.create_message(
+            thread_id=thread_id,
+            role="assistant",
+            content=assistant_message
+        )
+
+        logger.debug(f"Persisted messages to thread {thread_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to persist messages: {e}")
+        # Don't raise - persistence failure shouldn't break the chat
 
 
 def format_law_result(result: dict, rank: int) -> str:
@@ -449,6 +527,79 @@ Please check your authenticator app and try again.
 
 _Make sure to enter the current 6-digit code, or use a backup code (format: XXXX-XXXX)._"""
         ).send()
+
+
+# =============================================================================
+# CHAT RESUME (Restore Previous Conversations)
+# =============================================================================
+
+@cl.on_chat_resume
+async def on_chat_resume(thread):
+    """
+    Resume a previous conversation from encrypted storage.
+
+    This is called when a user clicks on a previous thread in the sidebar.
+    The thread parameter contains the thread data from the data layer.
+    """
+    global triad_search, pipeline, context_assembler
+    global doc_processor, review_manager, excel_exporter
+
+    logger.info(f"Resuming thread: {thread.get('id', 'unknown')}")
+
+    # Initialize components lazily
+    if triad_search is None:
+        triad_search = TriadSearch()
+    if pipeline is None:
+        pipeline = get_pipeline()
+    if context_assembler is None:
+        context_assembler = ContextAssembler()
+    if doc_processor is None:
+        doc_processor = DocumentProcessor()
+    if review_manager is None:
+        review_manager = ReviewManager(storage_path="data/reviews")
+    if excel_exporter is None:
+        excel_exporter = ExcelExporter()
+
+    # Restore chat history from thread messages
+    chat_history = []
+    data_layer = get_data_layer()
+
+    if data_layer:
+        try:
+            messages = await data_layer.get_messages(thread.get("id", ""))
+            for msg in messages:
+                if msg["role"] in ["user", "assistant"]:
+                    chat_history.append({
+                        "role": msg["role"],
+                        "content": msg["content"]
+                    })
+        except Exception as e:
+            logger.error(f"Failed to restore messages: {e}")
+
+    # Set session state
+    cl.user_session.set("mode", "assistant")  # Default to assistant mode for resumed threads
+    cl.user_session.set("chat_history", chat_history[-10:])  # Keep last 10 turns
+    cl.user_session.set("current_review", None)
+    cl.user_session.set("documents", [])
+    cl.user_session.set("thread_id", thread.get("id"))
+
+    # Show resume message
+    thread_name = thread.get("name", "previous conversation")
+    msg_count = len(chat_history)
+
+    await cl.Message(
+        content=f"""# 🛡️ **KERBERUS** - Conversation Resumed
+
+_Restored **{msg_count}** messages from "{thread_name}"._
+
+---
+
+Continue your legal research or switch modes:""",
+        actions=[
+            cl.Action(name="mode_assistant", payload={"mode": "assistant"}, label="⚖️ Continue Legal Assistant"),
+            cl.Action(name="mode_review", payload={"mode": "review"}, label="📊 Switch to Tabular Review"),
+        ]
+    ).send()
 
 
 # =============================================================================
@@ -1170,6 +1321,12 @@ The search was successful. Please try again."""
         chat_history.append({"role": "user", "content": message.content})
         chat_history.append({"role": "assistant", "content": "".join(full_response)})
         cl.user_session.set("chat_history", chat_history[-10:])
+
+        # Persist to encrypted storage
+        await persist_messages(
+            user_message=message.content,
+            assistant_message="".join(full_response)
+        )
 
     except Exception as e:
         msg.content = f"**Error:** {str(e)}"
