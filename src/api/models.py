@@ -5,7 +5,7 @@ Request and response models for all API endpoints.
 """
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
 
 # ============================================
@@ -13,34 +13,46 @@ from pydantic import BaseModel, EmailStr, Field
 # ============================================
 
 class UserRegister(BaseModel):
-    """User registration request."""
-    email: EmailStr
-    password: str = Field(..., min_length=8, description="Minimum 8 characters")
+    """
+    User registration request.
 
-    class Config:
-        json_schema_extra = {
+    Creates a new user account with email and password.
+    Password must be at least 8 characters.
+    """
+    email: EmailStr = Field(..., description="Valid email address")
+    password: str = Field(..., min_length=8, description="Password (minimum 8 characters)")
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "email": "lawyer@lawfirm.ch",
                 "password": "securepassword123"
             }
         }
+    )
 
 
 class UserLogin(BaseModel):
-    """User login request."""
-    email: EmailStr
-    password: str
-    totp_code: Optional[str] = Field(None, description="6-digit TOTP code if MFA enabled")
-    backup_code: Optional[str] = Field(None, description="Backup code for MFA recovery (format: XXXX-XXXX)")
+    """
+    User login request.
 
-    class Config:
-        json_schema_extra = {
+    Authenticate with email and password. If MFA is enabled,
+    provide either totp_code or backup_code.
+    """
+    email: EmailStr = Field(..., description="Registered email address")
+    password: str = Field(..., description="Account password")
+    totp_code: Optional[str] = Field(None, description="6-digit TOTP code from authenticator app")
+    backup_code: Optional[str] = Field(None, description="One-time backup code (format: XXXX-XXXX)")
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "email": "lawyer@lawfirm.ch",
                 "password": "securepassword123",
                 "totp_code": "123456"
             }
         }
+    )
 
 
 class TokenResponse(BaseModel):
@@ -54,17 +66,23 @@ class TokenResponse(BaseModel):
 
 
 class PasswordChangeRequest(BaseModel):
-    """Password change request."""
-    current_password: str
+    """
+    Password change request.
+
+    Requires current password verification. All other sessions
+    are invalidated after successful password change.
+    """
+    current_password: str = Field(..., description="Current account password")
     new_password: str = Field(..., min_length=8, description="New password (minimum 8 characters)")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "current_password": "oldpassword123",
                 "new_password": "newsecurepassword456"
             }
         }
+    )
 
 
 class MFASetupResponse(BaseModel):
@@ -80,12 +98,17 @@ class MFAVerifyRequest(BaseModel):
 
 
 class MFAVerifyResponse(BaseModel):
-    """MFA verification success response with backup codes."""
-    message: str = "MFA enabled successfully"
-    backup_codes: List[str] = Field(..., description="One-time backup codes for account recovery")
+    """
+    MFA verification success response.
 
-    class Config:
-        json_schema_extra = {
+    Contains backup codes that should be stored securely.
+    Each backup code can only be used once.
+    """
+    message: str = "MFA enabled successfully"
+    backup_codes: List[str] = Field(..., description="One-time backup codes for account recovery (store securely!)")
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "message": "MFA enabled successfully",
                 "backup_codes": [
@@ -100,6 +123,7 @@ class MFAVerifyResponse(BaseModel):
                 ]
             }
         }
+    )
 
 
 class UserResponse(BaseModel):
@@ -116,17 +140,25 @@ class UserResponse(BaseModel):
 # ============================================
 
 class ChatRequest(BaseModel):
-    """Chat query request."""
-    query: str = Field(..., min_length=3, max_length=2000)
-    language: Optional[str] = Field("auto", description="Language: de, fr, it, en, or auto")
+    """
+    Chat query request for legal analysis.
+
+    Submits a legal question for analysis using the four-stage pipeline:
+    1. Guard & Enhance (security + query optimization)
+    2. TriadSearch (hybrid + MMR + rerank)
+    3. Reformulate (structure for analysis)
+    4. Analyze (full legal analysis with citations)
+    """
+    query: str = Field(..., min_length=3, max_length=2000, description="Legal question to analyze")
+    language: Optional[str] = Field("auto", description="Response language: de, fr, it, en, or auto-detect")
     search_scope: Optional[str] = Field("both", description="Search scope: both, laws, decisions")
-    multilingual: Optional[bool] = Field(False, description="Enable cross-language search")
-    max_laws: Optional[int] = Field(10, ge=1, le=15, description="Max laws to send to LLM (it will filter)")
-    max_decisions: Optional[int] = Field(10, ge=1, le=20, description="Max decisions to send to LLM (it will filter)")
+    multilingual: Optional[bool] = Field(False, description="Enable cross-language search (searches all languages)")
+    max_laws: Optional[int] = Field(10, ge=1, le=15, description="Maximum laws to include in context")
+    max_decisions: Optional[int] = Field(10, ge=1, le=20, description="Maximum court decisions to include")
     enable_web_search: Optional[bool] = Field(False, description="Enable web search for additional sources")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "query": "Unter welchen Umständen ist eine fristlose Kündigung gerechtfertigt?",
                 "language": "de",
@@ -135,6 +167,7 @@ class ChatRequest(BaseModel):
                 "enable_web_search": False
             }
         }
+    )
 
 
 class SourceReference(BaseModel):
@@ -168,23 +201,29 @@ class StreamChatRequest(ChatRequest):
 # ============================================
 
 class SearchRequest(BaseModel):
-    """Search request."""
-    query: str = Field(..., min_length=2, max_length=500)
-    collection: str = Field("both", description="codex, library, or both")
-    limit: int = Field(10, ge=1, le=50)
-    language: Optional[str] = Field(None, description="Filter by language: de, fr, it")
-    year_min: Optional[int] = Field(None, ge=1900, le=2030)
-    year_max: Optional[int] = Field(None, ge=1900, le=2030)
-    multilingual: bool = Field(False)
+    """
+    Direct search request for laws and court decisions.
 
-    class Config:
-        json_schema_extra = {
+    Performs hybrid search (dense + sparse vectors) with optional filters.
+    Use 'codex' for laws, 'library' for court decisions, or 'both'.
+    """
+    query: str = Field(..., min_length=2, max_length=500, description="Search query")
+    collection: str = Field("both", description="Collection: codex (laws), library (decisions), or both")
+    limit: int = Field(10, ge=1, le=50, description="Maximum results to return")
+    language: Optional[str] = Field(None, description="Filter by language: de, fr, it")
+    year_min: Optional[int] = Field(None, ge=1900, le=2030, description="Minimum year filter")
+    year_max: Optional[int] = Field(None, ge=1900, le=2030, description="Maximum year filter")
+    multilingual: bool = Field(False, description="Search across all languages")
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "query": "fristlose Kündigung Art. 337 OR",
                 "collection": "both",
                 "limit": 10
             }
         }
+    )
 
 
 class SearchResult(BaseModel):
@@ -249,16 +288,22 @@ class ServiceHealth(BaseModel):
 # ============================================
 
 class ErrorResponse(BaseModel):
-    """Standard error response."""
-    error: str
-    detail: Optional[str] = None
-    code: Optional[str] = None
+    """
+    Standard error response.
 
-    class Config:
-        json_schema_extra = {
+    All API errors return this format with an error message,
+    optional detail, and error code for programmatic handling.
+    """
+    error: str = Field(..., description="Error type/summary")
+    detail: Optional[str] = Field(None, description="Detailed error message")
+    code: Optional[str] = Field(None, description="Error code for programmatic handling")
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "error": "Unauthorized",
                 "detail": "Invalid or expired token",
                 "code": "AUTH_TOKEN_INVALID"
             }
         }
+    )
