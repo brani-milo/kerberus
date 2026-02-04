@@ -44,13 +44,17 @@ def _get_document_key(doc: Dict) -> str:
     payload = doc.get('payload', {})
 
     # Try different document type identifiers
-    # Fedlex articles
-    if payload.get('article_number'):
-        return f"{payload.get('sr_number', '')}_{payload.get('article_number')}"
+    # Fedlex articles - group by law (sr_number), not individual articles
+    if payload.get('sr_number'):
+        return payload.get('sr_number')
 
     # Court decisions
     if payload.get('decision_id'):
         return payload['decision_id']
+
+    # Dossier documents
+    if payload.get('doc_id'):
+        return payload['doc_id']
 
     # Original ID fallback
     if payload.get('_original_id'):
@@ -58,6 +62,39 @@ def _get_document_key(doc: Dict) -> str:
 
     # Last resort: use the document id
     return str(doc.get('id', ''))
+
+
+def deduplicate_by_document(
+    results: List[Dict],
+    top_k: int = 10
+) -> List[Dict]:
+    """
+    Keep only the best-scoring chunk per unique document.
+
+    When multiple chunks from the same document are retrieved,
+    this keeps only the highest-scoring one to ensure diversity.
+
+    Args:
+        results: Reranked results (sorted by score descending)
+        top_k: Number of unique documents to return
+
+    Returns:
+        List of top_k unique documents (best chunk per document)
+    """
+    seen_docs = set()
+    unique_results = []
+
+    for doc in results:
+        doc_key = _get_document_key(doc)
+
+        if doc_key not in seen_docs:
+            seen_docs.add(doc_key)
+            unique_results.append(doc)
+
+            if len(unique_results) >= top_k:
+                break
+
+    return unique_results
 
 
 def _metadata_similarity(doc1: Dict, doc2: Dict) -> float:

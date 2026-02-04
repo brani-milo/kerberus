@@ -12,7 +12,8 @@ import asyncio
 from typing import List, Dict, Optional
 from src.embedder.bge_embedder import get_embedder
 from src.reranker.bge_reranker import get_reranker
-from src.search.mmr import apply_mmr
+from src.search.mmr import apply_mmr, deduplicate_by_document
+from src.search.document_fetcher import enrich_results_with_full_content
 from src.database.vector_db import QdrantManager
 
 logger = logging.getLogger(__name__)
@@ -168,11 +169,29 @@ class TriadSearch:
                 )
                 rerank_docs.append({'text': text, **doc})
 
+            # Rerank more candidates than needed (2x) to allow for deduplication
             reranked = self.reranker.rerank_with_confidence(
                 query=query,
                 documents=rerank_docs,
-                top_k=top_k
+                top_k=top_k * 2  # Get 2x to have enough after dedup
             )
+
+            # Step 4: Deduplicate - keep only best chunk per unique document
+            # This ensures we feed Qwen with 10 unique cases/laws, not 10 chunks from 3 docs
+            if reranked.get('results'):
+                reranked['results'] = deduplicate_by_document(
+                    reranked['results'],
+                    top_k=top_k
+                )
+                logger.info(f"{collection_name}: {len(reranked['results'])} unique documents after deduplication")
+
+                # Step 5: Fetch full document content for Qwen
+                # Chunks are for retrieval; Qwen needs full documents for accurate analysis
+                reranked['results'] = enrich_results_with_full_content(
+                    reranked['results'],
+                    collection=collection_name
+                )
+                logger.info(f"{collection_name}: Enriched with full document content")
 
             return reranked
 
@@ -267,11 +286,25 @@ class TriadSearch:
                 )
                 rerank_docs.append({'text': text, **doc})
 
+            # Rerank more candidates than needed (2x) to allow for deduplication
             reranked = self.reranker.rerank_with_confidence(
                 query=query,
                 documents=rerank_docs,
-                top_k=top_k
+                top_k=top_k * 2  # Get 2x to have enough after dedup
             )
+
+            # Deduplicate - keep only best chunk per unique document
+            if reranked.get('results'):
+                reranked['results'] = deduplicate_by_document(
+                    reranked['results'],
+                    top_k=top_k
+                )
+                logger.info(f"Dossier: {len(reranked['results'])} unique documents after deduplication")
+
+                # Note: Full content enrichment for dossier happens at the API layer
+                # where the decrypted DossierSearchService is available.
+                # Mark results as needing enrichment.
+                reranked['needs_enrichment'] = True
 
             return reranked
 

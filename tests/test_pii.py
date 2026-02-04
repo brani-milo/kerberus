@@ -311,13 +311,19 @@ class TestEdgeCases:
         assert len(email_entities) == 1
 
     def test_unicode_text(self):
-        """Test handling of Unicode text."""
+        """Test handling of Unicode text with special characters."""
         scrubber = PIIScrubber(enabled=True)
-        text = "Zürich: test@example.com, Genève, Ticino"
+        # Use Unicode characters that won't be detected as named entities
+        text = "Vertragsbedingungen für Käufer: test@example.com (Prüfung abgeschlossen)"
         scrubbed = scrubber.scrub(text, language="de")
 
+        # Email should be scrubbed
         assert "test@example.com" not in scrubbed
-        assert "Zürich" in scrubbed
+        assert "<EMAIL_ADDRESS>" in scrubbed
+        # Unicode characters in non-entity text should be preserved
+        assert "für" in scrubbed
+        assert "Käufer" in scrubbed
+        assert "Prüfung" in scrubbed
 
     def test_mixed_languages(self):
         """Test text with mixed languages."""

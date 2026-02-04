@@ -75,14 +75,14 @@ User Query → Mistral 1 (Guard) → Search → Mistral 2 (Reformulate) → Qwen
 - **Stage 4: Legal Analysis** - Full analysis with dual-language citations (Qwen)
 
 **Advanced RAG Pipeline:**
-- **BGE-M3 embeddings** - Multilingual semantic search (1024-dim, 100+ languages) enabling zero-shot cross-lingual retrieval
-- **BGE-Reranker-v2-M3** - Cross-encoder precision ranking
-- **Recency weighting** - Recent precedents scored higher
+- **BGE-M3 Hybrid Embeddings** - Dense (1024-dim semantic) + Sparse (lexical/BM25-like) with Reciprocal Rank Fusion (RRF)
+- **BGE-Reranker-v2-M3** - Cross-encoder precision ranking (processes query+document jointly for accurate relevance scoring)
+- **Recency weighting** - Recent precedents scored higher via normalized year scoring
 - **Authority weighting** - Supreme Court (BGE/ATF) cases prioritized
-- **Calibrated MMR** - Optimized diversity/relevance balance (0.85) to preserve Cantonal decisions
+- **Calibrated MMR** - λ=0.85 optimized diversity/relevance balance to preserve Cantonal decisions while removing duplicates
 - **Triad search** - Parallel search across laws (Codex), case law (Library), and user dossiers
-- **Deep Search Scaling** - Retrieves 250+ candidates per lane and de-duplicates chunks to ensure 15+ unique decisions in context
-- **Full document retrieval** - When a chunk matches, fetches complete decision for context
+- **Deep Search Pipeline** - 250 candidates → MMR (20 diverse) → Rerank (score all) → Deduplicate (10 unique documents)
+- **Full document retrieval** - Chunks are for finding; Qwen receives complete decisions/laws (regeste, facts, reasoning, decision) for accurate legal analysis
 
 <div align="center">
   <img src="assets/triad_search.png" alt="Triad Search Strategy" width="600"/>
@@ -346,6 +346,7 @@ Requires replacing scrapers and adapting metadata schema for local court hierarc
 | **LLM** | Qwen3-VL (235B) & Mistral-Small-3.2-24B |
 | **Deployment** | Docker + Infomaniak |
 | **Frontend** | Chainlit (conversational UI) |
+| **Testing** | pytest (68+ tests covering security, PII, dossier, embedder, reranker) |
 
 ---
 
