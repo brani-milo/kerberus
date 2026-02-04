@@ -187,6 +187,11 @@ This ensures recent, authoritative precedents surface first while maintaining se
   - Dual-collection search (Laws + Case Law)
   - Multilingual mode toggle for cross-language queries
   - Real-time search with filters (year, language, scope)
+
+<div align="center">
+  <img src="assets/chat.jpg" alt="Chainlit Chat Interface" width="800"/>
+</div>
+
 - **Three-Stage LLM Pipeline**
   - Mistral 1: Guard & Enhance (security + query optimization)
   - Mistral 2: Query Reformulator (structures request for Qwen)
@@ -216,6 +221,16 @@ This ensures recent, authoritative precedents surface first while maintaining se
   - Automatic parsing, chunking, and embedding
   - PII scrubbing before storage
   - Hybrid search across user's documents
+- **Tabular Document Review** (New!)
+  - **Schema-Driven Extraction**: Automatically extracts fields from documents based on presets
+  - **Specialized Presets**:
+    - 📄 **Contract Review** (Term, Termination, Indemnity)
+    - 👔 **Employment Contracts** (Salary, Non-Compete, Benefits)
+    - 🔒 **NDA Review** (Confidentiality Period, Exclusions)
+    - 🔍 **Due Diligence** (Change of Control, Assignability)
+  - **Excel Export**: Download structured review data for offline analysis
+  - **Citation Tracking**: Every extracted value links back to source text
+  - **Review Chat**: Q&A across the entire document set
 
 ## 🛠️ Usage
 
@@ -292,7 +307,6 @@ API endpoints available at `http://localhost:8000`:
 - Embedding pipeline (populate Qdrant with parsed data)
 
 ### **🔜 Next**
-- Automated Document Review (AI-driven analysis of document sets at scale)
 - Firm management (shared dossiers, role-based access)
 - Token usage billing and rate limiting
 
