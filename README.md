@@ -60,10 +60,14 @@ I chose to open-source this reference implementation because:
 ### **Core Components**
 
 **Infrastructure:**
-- Docker-orchestrated services (Qdrant, PostgreSQL, Redis)
+- Docker Swarm orchestrated services (Qdrant, PostgreSQL, Redis)
 - **Auto GPU detection** (CUDA → MPS → CPU fallback)
-- Apple Silicon optimized for local development
-- Production deployment ready (Infomaniak with GPU)
+  - NVIDIA GPU: Full CUDA acceleration
+  - Apple Silicon: MPS backend for local development
+  - CPU: Automatic fallback when no GPU available
+- Production deployed on Infomaniak (Swiss sovereignty)
+- Docker Secrets for secure credential management
+- Nginx reverse proxy with Let's Encrypt SSL
 
 **Three-Stage LLM Pipeline:**
 ```
