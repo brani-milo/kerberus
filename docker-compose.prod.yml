@@ -34,6 +34,13 @@ services:
       resources:
         limits:
           memory: 8G
+        # GPU support (optional) - comment out if no NVIDIA GPU available
+        # The embedder auto-detects: CUDA → MPS (Apple) → CPU
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: unless-stopped
     networks:
       - kerberus-network
