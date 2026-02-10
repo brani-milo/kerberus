@@ -110,8 +110,12 @@ def get_postgres_password() -> str:
 
 
 def get_llm_api_key() -> Optional[str]:
-    """Get LLM API key (Mistral/OpenAI)."""
-    return get_secret("LLM_API_KEY") or get_secret("MISTRAL_API_KEY")
+    """Get LLM API key (Infomaniak/Mistral/OpenAI)."""
+    return (
+        get_secret("LLM_API_KEY") or
+        get_secret("INFOMANIAK_API_KEY") or
+        get_secret("MISTRAL_API_KEY")
+    )
 
 
 def get_chainlit_auth_secret() -> str:

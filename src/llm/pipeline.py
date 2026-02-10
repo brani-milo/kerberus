@@ -1,23 +1,28 @@
 """
 KERBERUS Legal Analysis Pipeline.
 
-Three-stage LLM pipeline:
-1. Mistral 1: Guard & Enhance (security + query improvement)
+Three-stage LLM pipeline using Infomaniak AI:
+1. Guard & Enhance (cheap model - security + query improvement)
 2. Search + Rerank + MMR
-3. Mistral 2: Query Reformulator (structure for Qwen)
-4. Qwen: Full Legal Analysis (with citations)
+3. Query Reformulator (cheap model - structure for analysis)
+4. Full Legal Analysis (premium model - with citations)
 """
+import os
 import json
 import logging
 import re
 from typing import Dict, List, Optional, Tuple, Generator
 from dataclasses import dataclass
 
-from .client import MistralClient, QwenClient, LLMResponse, get_mistral_client, get_qwen_client
+from .client import InfomaniakClient, LLMResponse, get_infomaniak_client
 from .prompts import GuardEnhancePrompts, ReformulatorPrompts, LegalAnalysisPrompts
 from .context import ContextAssembler
 
 logger = logging.getLogger(__name__)
+
+# Models from environment
+GUARD_MODEL = os.getenv("INFOMANIAK_GUARD_MODEL", "mistral-small-3.2-24b-instruct-2506")
+ANALYSIS_MODEL = os.getenv("INFOMANIAK_ANALYSIS_MODEL", "qwen3-235b-a22b-instruct")
 
 
 @dataclass
@@ -61,20 +66,21 @@ class LegalPipeline:
     Orchestrates the complete legal analysis pipeline.
 
     Flow:
-    1. Guard & Enhance (Mistral 1)
+    1. Guard & Enhance (cheap model)
     2. Search (external - called by Chainlit)
-    3. Reformulate (Mistral 2)
-    4. Analyze (Qwen)
+    3. Reformulate (cheap model)
+    4. Analyze (premium model)
     """
 
     def __init__(self):
-        self.mistral = get_mistral_client()
-        self.qwen = get_qwen_client()
+        self.client = get_infomaniak_client()
+        self.guard_model = GUARD_MODEL
+        self.analysis_model = ANALYSIS_MODEL
         self.context_assembler = ContextAssembler()
 
     def guard_and_enhance(self, query: str) -> GuardResult:
         """
-        Stage 1: Guard & Enhance (Mistral 1)
+        Stage 1: Guard & Enhance (cheap model)
 
         - Check for prompt injections
         - Detect language
@@ -85,7 +91,7 @@ class LegalPipeline:
             {"role": "user", "content": GuardEnhancePrompts.USER_TEMPLATE.format(query=query)},
         ]
 
-        response = self.mistral.chat(messages, max_tokens=1024, temperature=0.1)
+        response = self.client.chat(messages, max_tokens=1024, temperature=0.1, model=self.guard_model)
 
         # Parse JSON response
         try:
@@ -159,7 +165,7 @@ class LegalPipeline:
             )},
         ]
 
-        response = self.mistral.chat(messages, max_tokens=512, temperature=0.2)
+        response = self.client.chat(messages, max_tokens=512, temperature=0.2, model=self.guard_model)
         return response.content, response
 
     def analyze(
@@ -171,16 +177,16 @@ class LegalPipeline:
         web_search: bool = False,
     ) -> Generator[str, None, LLMResponse]:
         """
-        Stage 4: Legal Analysis (Qwen)
+        Stage 4: Legal Analysis (premium model)
 
         Streams the response for real-time display.
 
         Args:
-            reformulated_query: Structured query from Mistral 2
+            reformulated_query: Structured query from reformulator
             laws_context: Formatted laws from RAG
             decisions_context: Formatted decisions from RAG
             language: Response language
-            web_search: If True, use Qwen with web search capability
+            web_search: Unused (kept for API compatibility)
         """
         system_prompt = LegalAnalysisPrompts.get_system_prompt(language)
 
@@ -195,7 +201,7 @@ class LegalPipeline:
             {"role": "user", "content": user_content},
         ]
 
-        return self.qwen.chat_stream(messages, max_tokens=8192, temperature=0.4, web_search=web_search)
+        return self.client.chat_stream(messages, max_tokens=8192, temperature=0.4, model=self.analysis_model)
 
     def analyze_sync(
         self,
@@ -227,7 +233,7 @@ class LegalPipeline:
             {"role": "user", "content": user_content},
         ]
 
-        response = self.qwen.chat(messages, max_tokens=8192, temperature=0.4, web_search=web_search)
+        response = self.client.chat(messages, max_tokens=8192, temperature=0.4, model=self.analysis_model)
         return response.content, response
 
     def build_context(

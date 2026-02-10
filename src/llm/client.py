@@ -163,80 +163,84 @@ class MistralClient:
         )
 
 
-class QwenClient:
+class InfomaniakClient:
     """
-    Qwen client via Infomaniak API for final legal analysis.
+    Infomaniak AI client for legal analysis.
+
+    Uses Infomaniak's OpenAI-compatible API endpoint.
+    Supports multiple models (Qwen, Mistral, Gemma, Llama).
 
     Used for generating comprehensive legal answers with:
     - Dual-language citations
     - Consistency indicators
     - Full legal analysis
-
-    Supports two modes:
-    - Standard: QWEN_API_KEY (no web search)
-    - Web Search: QWEN_WEB_API_KEY (with web search enabled)
     """
 
-    # Pricing per 1M tokens (CHF)
+    # Pricing per 1M tokens (CHF) - varies by model
     PRICING = {
-        "input": 0.70,
-        "output": 2.20,
+        # Premium models
+        "qwen3-235b-a22b-instruct": {"input": 0.70, "output": 2.20},
+        "llama-4-maverick-17b-128e-instruct": {"input": 0.50, "output": 1.50},
+        # Cheap models
+        "mistral-small-3.2-24b-instruct-2506": {"input": 0.10, "output": 0.30},
+        "gemma-3n-e4b-it": {"input": 0.10, "output": 0.30},
     }
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        api_key_web: Optional[str] = None,
-        base_url: Optional[str] = None,
-        model: str = "qwen3-vl-235b-instruct",
+        product_id: Optional[str] = None,
+        model: str = None,
     ):
-        # Standard API key (no web search)
-        self.api_key = api_key or get_secret("QWEN_API_KEY") or get_secret("LLM_API_KEY")
-        # Web search API key (separate token)
-        self.api_key_web = api_key_web or get_secret("QWEN_WEB_API_KEY")
-        self.base_url = base_url or os.getenv("QWEN_API_URL", "https://api.infomaniak.com/1/ai")
-        self.model = model
+        # API key from secrets or env
+        self.api_key = api_key or get_secret("INFOMANIAK_API_KEY") or get_secret("LLM_API_KEY")
+
+        # Product ID from env
+        self.product_id = product_id or os.getenv("INFOMANIAK_PRODUCT_ID")
+
+        # Model defaults to analysis model from env
+        self.model = model or os.getenv("INFOMANIAK_ANALYSIS_MODEL", "qwen3-235b-a22b-instruct")
+
+        # Build base URL
+        if self.product_id:
+            self.base_url = f"https://api.infomaniak.com/1/ai/{self.product_id}/openai"
+        else:
+            self.base_url = None
+            logger.warning("No INFOMANIAK_PRODUCT_ID found - API calls will fail")
 
         if not self.api_key:
-            logger.warning("No Qwen API key found (QWEN_API_KEY)")
-        if not self.api_key_web:
-            logger.info("No Qwen Web API key found (QWEN_WEB_API_KEY) - web search disabled")
-
-    def _get_api_key(self, web_search: bool = False) -> Optional[str]:
-        """Get the appropriate API key based on web search setting."""
-        if web_search and self.api_key_web:
-            return self.api_key_web
-        return self.api_key
+            logger.warning("No Infomaniak API key found (INFOMANIAK_API_KEY or LLM_API_KEY)")
 
     def chat(
         self,
         messages: List[Dict],
         max_tokens: int = 8192,
         temperature: float = 0.4,
-        web_search: bool = False,
+        model: Optional[str] = None,
     ) -> LLMResponse:
-        """Send chat request to Qwen.
+        """Send chat request to Infomaniak.
 
         Args:
             messages: Chat messages
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
-            web_search: If True, use QWEN_WEB_API_KEY for web search capability
+            model: Override model for this request
         """
-        api_key = self._get_api_key(web_search)
-        if not api_key:
+        if not self.api_key or not self.base_url:
             return self._mock_response(messages)
 
+        use_model = model or self.model
         start_time = time.time()
 
         try:
             response = requests.post(
-                f"{self.base_url}/{self.model}/chat/completions",
+                f"{self.base_url}/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {api_key}",
+                    "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
                 },
                 json={
+                    "model": use_model,
                     "messages": messages,
                     "max_tokens": max_tokens,
                     "temperature": temperature,
@@ -253,42 +257,42 @@ class QwenClient:
 
             return LLMResponse(
                 content=data["choices"][0]["message"]["content"],
-                model=self.model,
-                provider="qwen",
+                model=use_model,
+                provider="infomaniak",
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 total_tokens=input_tokens + output_tokens,
                 latency_ms=latency_ms,
-                cost_chf=self._calculate_cost(input_tokens, output_tokens),
+                cost_chf=self._calculate_cost(use_model, input_tokens, output_tokens),
             )
 
         except Exception as e:
-            logger.error(f"Qwen API error: {e}")
-            raise RuntimeError(f"Qwen request failed: {e}")
+            logger.error(f"Infomaniak API error: {e}")
+            raise RuntimeError(f"Infomaniak request failed: {e}")
 
     def chat_stream(
         self,
         messages: List[Dict],
         max_tokens: int = 8192,
         temperature: float = 0.4,
-        web_search: bool = False,
+        model: Optional[str] = None,
     ) -> Generator[str, None, LLMResponse]:
-        """Stream chat response from Qwen.
+        """Stream chat response from Infomaniak.
 
         Args:
             messages: Chat messages
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
-            web_search: If True, use QWEN_WEB_API_KEY for web search capability
+            model: Override model for this request
         """
-        api_key = self._get_api_key(web_search)
-        if not api_key:
+        if not self.api_key or not self.base_url:
             response = self._mock_response(messages)
             for word in response.content.split():
                 yield word + " "
                 time.sleep(0.02)
             return response
 
+        use_model = model or self.model
         start_time = time.time()
         full_content = []
         input_tokens = 0
@@ -296,12 +300,13 @@ class QwenClient:
 
         try:
             response = requests.post(
-                f"{self.base_url}/{self.model}/chat/completions",
+                f"{self.base_url}/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {api_key}",
+                    "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
                 },
                 json={
+                    "model": use_model,
                     "messages": messages,
                     "max_tokens": max_tokens,
                     "temperature": temperature,
@@ -337,23 +342,24 @@ class QwenClient:
 
             return LLMResponse(
                 content="".join(full_content),
-                model=self.model,
-                provider="qwen",
+                model=use_model,
+                provider="infomaniak",
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 total_tokens=input_tokens + output_tokens,
                 latency_ms=latency_ms,
-                cost_chf=self._calculate_cost(input_tokens, output_tokens),
+                cost_chf=self._calculate_cost(use_model, input_tokens, output_tokens),
             )
 
         except Exception as e:
-            logger.error(f"Qwen streaming error: {e}")
-            raise RuntimeError(f"Qwen streaming failed: {e}")
+            logger.error(f"Infomaniak streaming error: {e}")
+            raise RuntimeError(f"Infomaniak streaming failed: {e}")
 
-    def _calculate_cost(self, input_tokens: int, output_tokens: int) -> float:
+    def _calculate_cost(self, model: str, input_tokens: int, output_tokens: int) -> float:
+        pricing = self.PRICING.get(model, {"input": 0.50, "output": 1.50})
         return round(
-            (input_tokens / 1_000_000) * self.PRICING["input"] +
-            (output_tokens / 1_000_000) * self.PRICING["output"],
+            (input_tokens / 1_000_000) * pricing["input"] +
+            (output_tokens / 1_000_000) * pricing["output"],
             6
         )
 
@@ -418,7 +424,7 @@ Die Rechtslage zeigt ein gemischtes Bild (🟡 MIXED).
 
 # Singleton instances
 _mistral_client: Optional[MistralClient] = None
-_qwen_client: Optional[QwenClient] = None
+_infomaniak_client: Optional[InfomaniakClient] = None
 
 
 def get_mistral_client(**kwargs) -> MistralClient:
@@ -429,9 +435,18 @@ def get_mistral_client(**kwargs) -> MistralClient:
     return _mistral_client
 
 
-def get_qwen_client(**kwargs) -> QwenClient:
-    """Get shared Qwen client instance."""
-    global _qwen_client
-    if _qwen_client is None:
-        _qwen_client = QwenClient(**kwargs)
-    return _qwen_client
+def get_infomaniak_client(**kwargs) -> InfomaniakClient:
+    """Get shared Infomaniak client instance."""
+    global _infomaniak_client
+    if _infomaniak_client is None:
+        _infomaniak_client = InfomaniakClient(**kwargs)
+    return _infomaniak_client
+
+
+# Alias for backwards compatibility
+def get_qwen_client(**kwargs) -> InfomaniakClient:
+    """Get shared Infomaniak client instance (alias for backwards compatibility)."""
+    return get_infomaniak_client(**kwargs)
+
+
+QwenClient = InfomaniakClient  # Alias for backwards compatibility
