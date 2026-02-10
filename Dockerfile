@@ -40,5 +40,10 @@ ENV QDRANT_PORT=6333
 # Expose ports
 EXPOSE 8000
 
+# Copy and setup entrypoint script for Docker secrets
+COPY scripts/docker-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+
 # Default command (Chainlit app)
 CMD ["chainlit", "run", "frontend/app.py", "--host", "0.0.0.0", "--port", "8000"]

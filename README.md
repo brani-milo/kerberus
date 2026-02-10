@@ -1,6 +1,6 @@
 # 🛡️ KERBERUS - Open Source Legal Intelligence for Switzerland
 
-> **Status:** 🚧 In Active Development | Expected Release: February 2026
+> **Status:** 🚀 Production Ready | Demo available on request
 
 A production-grade AI legal assistant for Swiss lawyers, built with zero-knowledge encryption, multilingual support(DE/FR/IT) and full data sovereignty.
 
@@ -300,11 +300,14 @@ API endpoints available at `http://localhost:8000`:
 
 ## 🎥 Demo
 
-**Coming Soon:** Video walkthrough and hosted demo
+**Demo available on request** - Contact for access to the live instance (limited to selected Swiss lawyers for testing).
 
-### **🚧 In Progress**
-- Production deployment on Infomaniak
-- Embedding pipeline (populate Qdrant with parsed data)
+### **✅ Recently Completed**
+- Production deployment on Infomaniak (Docker Swarm)
+- HTTPS with Let's Encrypt SSL certificates
+- Docker Secrets for secure credential management
+- Nginx reverse proxy configuration
+- Full data ingestion pipeline (scrape → parse → embed)
 
 ### **🔜 Next**
 - Firm management (shared dossiers, role-based access)
@@ -446,5 +449,3 @@ This software is provided under the MIT License (see LICENSE file). It is not in
 ---
 
 **⭐ Star this repo if you find it useful!**
-
-**Expected release: February 2026**

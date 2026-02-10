@@ -49,11 +49,6 @@ services:
         limits:
           memory: 4G
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
     networks:
       - kerberus-network
 
