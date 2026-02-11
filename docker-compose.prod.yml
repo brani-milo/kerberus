@@ -16,6 +16,10 @@ services:
       - POSTGRES_DB=kerberus
       - POSTGRES_USER=kerberus_user
       - REDIS_HOST=redis
+      # Infomaniak LLM settings
+      - INFOMANIAK_PRODUCT_ID=${INFOMANIAK_PRODUCT_ID}
+      - INFOMANIAK_GUARD_MODEL=mistral24b
+      - INFOMANIAK_ANALYSIS_MODEL=qwen3
       # Secrets are mounted as files at /run/secrets/
       - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
       - LLM_API_KEY_FILE=/run/secrets/llm_api_key

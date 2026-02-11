@@ -5,11 +5,28 @@
 README_INTERNAL.md
 CLAUDE.md
 # ============================================
-# Environment & Secrets
+# Environment & Secrets (NEVER COMMIT)
 # ============================================
 .env
 .env.local
 .env.*.local
+.env.production
+.env.prod
+*.env
+
+# Secret files
+secrets/
+*.secret
+*.key
+*.pem
+*.crt
+*_secret*
+*_key*
+api_key*
+apikey*
+
+# Docker secrets (if accidentally copied)
+docker-secrets/
 
 # ============================================
 # Python
