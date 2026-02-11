@@ -26,7 +26,7 @@ pydantic-settings>=2.1.0
 qdrant-client>=1.7.0
 FlagEmbedding==1.2.11
 transformers==4.44.0
-torch==2.2.0
+# torch - installed separately in Dockerfile (CPU-only version)
 safetensors>=0.4.0
 sentencepiece>=0.1.99
 accelerate==0.33.0

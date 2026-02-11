@@ -1,23 +1,50 @@
-# Use PyTorch with CUDA runtime for GPU support (Optimized for Cloud)
-FROM pytorch/pytorch:2.1.2-cuda12.1-cudnn8-runtime
+# ===========================================
+# KERBERUS - Optimized CPU-only Dockerfile
+# Multi-stage build for minimal image size
+# ===========================================
 
-# Set working directory
+# Stage 1: Builder
+FROM python:3.10-slim as builder
+
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    curl \
-    git \
     libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Install dependencies
-# Note: For Docker (Linux), sqlcipher3 usually builds much easier than on Mac
+# Install PyTorch CPU-only FIRST (before requirements.txt)
+RUN pip install --no-cache-dir \
+    torch==2.2.0+cpu \
+    --index-url https://download.pytorch.org/whl/cpu
+
+# Copy and install requirements (torch will be skipped as already installed)
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# ===========================================
+# Stage 2: Runtime (minimal)
+# ===========================================
+FROM python:3.10-slim as runtime
+
+WORKDIR /app
+
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libsqlite3-0 \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean \
+    && rm -rf /var/cache/apt/archives/*
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy source code only (data is mounted as volumes at runtime)
 COPY src/ ./src/
