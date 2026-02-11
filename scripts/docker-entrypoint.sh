@@ -4,6 +4,7 @@
 
 if [ -f "/run/secrets/chainlit_auth_secret" ]; then
     export CHAINLIT_AUTH_SECRET=$(cat /run/secrets/chainlit_auth_secret)
+    export JWT_SECRET=$(cat /run/secrets/chainlit_auth_secret)
 fi
 if [ -f "/run/secrets/llm_api_key" ]; then
     export LLM_API_KEY=$(cat /run/secrets/llm_api_key)

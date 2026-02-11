@@ -13,6 +13,8 @@ services:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - POSTGRES_HOST=postgres
+      - POSTGRES_DB=kerberus
+      - POSTGRES_USER=kerberus_user
       - REDIS_HOST=redis
       # Secrets are mounted as files at /run/secrets/
       - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
@@ -34,13 +36,9 @@ services:
       resources:
         limits:
           memory: 8G
-        # GPU support (optional) - comment out if no NVIDIA GPU available
-        # The embedder auto-detects: CUDA → MPS (Apple) → CPU
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    # Note: For GPU support with docker-compose (not swarm), add:
+    #   deploy.resources.reservations.devices with nvidia driver
+    # The embedder auto-detects: CUDA → MPS (Apple) → CPU
     restart: unless-stopped
     networks:
       - kerberus-network

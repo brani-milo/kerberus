@@ -61,7 +61,7 @@ class AuthDB:
         if connection_string is None:
             host = os.getenv("POSTGRES_HOST", "localhost")
             port = os.getenv("POSTGRES_PORT", "5432")
-            db = os.getenv("POSTGRES_DB", "kerberus_dev")
+            db = os.getenv("POSTGRES_DB", "kerberus")
             user = os.getenv("POSTGRES_USER", "kerberus_user")
             password = os.getenv("POSTGRES_PASSWORD", "")
             connection_string = f"postgresql://{user}:{password}@{host}:{port}/{db}"
