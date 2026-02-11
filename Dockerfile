@@ -19,11 +19,10 @@ COPY requirements.txt .
 # Note: For Docker (Linux), sqlcipher3 usually builds much easier than on Mac
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code
+# Copy source code only (data is mounted as volumes at runtime)
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 COPY frontend/ ./frontend/
-COPY data/ ./data/
 COPY .chainlit/ ./.chainlit/
 COPY chainlit.md .
 COPY public/ ./public/

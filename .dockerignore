@@ -37,21 +37,8 @@ build/
 logs/
 *.log
 
-# Local data (use volumes instead)
-data/qdrant_storage/
-data/redis_data/
-data/postgres_data/
-data/dossier/
-
-# Scraped data (mount as volumes for processing)
-data/federal_archive_full/
-data/ticino/
-data/fedlex/
-data/parsed/
-data/raw/
-data/processed/
-data/state/
-data/reviews/
+# ALL data - mount as volumes, never bake into image
+data/
 
 # Test files
 tests/
@@ -64,3 +51,24 @@ docs/
 
 # Claude/AI
 .claude/
+
+# Docker files (not needed inside container)
+Dockerfile
+docker-compose*.yml
+.docker/
+
+# Node (if any)
+node_modules/
+npm-debug.log
+
+# Scraper environment (local only)
+scraper_env/
+
+# Shell scripts at root level (keep scripts/ folder)
+/*.sh
+
+# Assets that might be large
+*.zip
+*.tar
+*.tar.gz
+*.rar
