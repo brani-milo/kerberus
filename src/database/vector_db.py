@@ -3,6 +3,7 @@ Qdrant vector database manager for KERBERUS.
 """
 
 import logging
+import os
 from typing import List, Dict, Optional
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue, SparseVectorParams, SparseIndexParams
@@ -24,10 +25,15 @@ class QdrantManager:
 
     def __init__(
         self,
-        host: str = "localhost",
-        port: int = 6333,
+        host: str = None,
+        port: int = None,
         api_key: Optional[str] = None
     ):
+        # Read from environment variables with fallback to defaults
+        if host is None:
+            host = os.environ.get("QDRANT_HOST", "localhost")
+        if port is None:
+            port = int(os.environ.get("QDRANT_PORT", "6333"))
         """
         Initialize Qdrant client.
 
