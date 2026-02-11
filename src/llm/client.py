@@ -421,6 +421,74 @@ Die Rechtslage zeigt ein gemischtes Bild (🟡 MIXED).
             cost_chf=0.0,
         )
 
+    # =========================================================================
+    # Web Search Methods (Placeholder - awaiting provider API access)
+    # =========================================================================
+
+    def chat_with_web_search(
+        self,
+        messages: List[Dict],
+        max_tokens: int = 8192,
+        temperature: float = 0.4,
+        model: Optional[str] = None,
+    ) -> LLMResponse:
+        """
+        Send chat request with web search enabled.
+
+        NOTE: This is a placeholder. The actual implementation depends on
+        the provider's web search API specification.
+
+        Args:
+            messages: Chat messages
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+            model: Override model for this request
+
+        Returns:
+            LLMResponse with web search results integrated
+        """
+        # TODO: Implement when provider grants web search API access
+        # Expected API parameters (to be confirmed):
+        # - enable_web_search: bool
+        # - search_depth: "basic" | "advanced"
+        # - search_recency: "day" | "week" | "month" | "any"
+        # - max_search_results: int
+
+        logger.warning("Web search not yet implemented - falling back to standard chat")
+        return self.chat(messages, max_tokens, temperature, model)
+
+    def chat_stream_with_web_search(
+        self,
+        messages: List[Dict],
+        max_tokens: int = 8192,
+        temperature: float = 0.4,
+        model: Optional[str] = None,
+    ) -> Generator[str, None, LLMResponse]:
+        """
+        Stream chat response with web search enabled.
+
+        NOTE: This is a placeholder. The actual implementation depends on
+        the provider's web search API specification.
+
+        Args:
+            messages: Chat messages
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+            model: Override model for this request
+
+        Yields:
+            Response chunks as they arrive
+
+        Returns:
+            Final LLMResponse with usage stats
+        """
+        # TODO: Implement when provider grants web search API access
+        # The streaming endpoint may need special handling for web search
+        # results (e.g., citations, source URLs)
+
+        logger.warning("Web search streaming not yet implemented - falling back to standard stream")
+        return self.chat_stream(messages, max_tokens, temperature, model)
+
 
 # Singleton instances
 _mistral_client: Optional[MistralClient] = None

@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Tuple, Generator
 from dataclasses import dataclass
 
 from .client import InfomaniakClient, LLMResponse, get_infomaniak_client
-from .prompts import GuardEnhancePrompts, ReformulatorPrompts, LegalAnalysisPrompts
+from .prompts import GuardEnhancePrompts, ReformulatorPrompts, LegalAnalysisPrompts, WebSearchLegalPrompts
 from .context import ContextAssembler
 
 logger = logging.getLogger(__name__)
@@ -186,22 +186,40 @@ class LegalPipeline:
             laws_context: Formatted laws from RAG
             decisions_context: Formatted decisions from RAG
             language: Response language
-            web_search: Unused (kept for API compatibility)
+            web_search: If True, use web search enhanced prompts and API
         """
-        system_prompt = LegalAnalysisPrompts.get_system_prompt(language)
-
-        user_content = LegalAnalysisPrompts.USER_TEMPLATE.format(
-            reformulated_query=reformulated_query,
-            laws_context=laws_context,
-            decisions_context=decisions_context,
-        )
+        # Select appropriate prompt based on web search setting
+        if web_search:
+            system_prompt = WebSearchLegalPrompts.get_system_prompt(language)
+            user_content = WebSearchLegalPrompts.USER_TEMPLATE.format(
+                reformulated_query=reformulated_query,
+                laws_context=laws_context,
+                decisions_context=decisions_context,
+                language=language,
+            )
+            logger.info("Using web search enhanced analysis")
+        else:
+            system_prompt = LegalAnalysisPrompts.get_system_prompt(language)
+            user_content = LegalAnalysisPrompts.USER_TEMPLATE.format(
+                reformulated_query=reformulated_query,
+                laws_context=laws_context,
+                decisions_context=decisions_context,
+            )
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ]
 
-        return self.client.chat_stream(messages, max_tokens=8192, temperature=0.4, model=self.analysis_model)
+        # Use web search API if enabled (placeholder - falls back to standard)
+        if web_search:
+            return self.client.chat_stream_with_web_search(
+                messages, max_tokens=8192, temperature=0.4, model=self.analysis_model
+            )
+        else:
+            return self.client.chat_stream(
+                messages, max_tokens=8192, temperature=0.4, model=self.analysis_model
+            )
 
     def analyze_sync(
         self,
@@ -220,20 +238,36 @@ class LegalPipeline:
             language: Response language
             web_search: If True, use Qwen with web search capability
         """
-        system_prompt = LegalAnalysisPrompts.get_system_prompt(language)
-
-        user_content = LegalAnalysisPrompts.USER_TEMPLATE.format(
-            reformulated_query=reformulated_query,
-            laws_context=laws_context,
-            decisions_context=decisions_context,
-        )
+        # Select appropriate prompt based on web search setting
+        if web_search:
+            system_prompt = WebSearchLegalPrompts.get_system_prompt(language)
+            user_content = WebSearchLegalPrompts.USER_TEMPLATE.format(
+                reformulated_query=reformulated_query,
+                laws_context=laws_context,
+                decisions_context=decisions_context,
+                language=language,
+            )
+            logger.info("Using web search enhanced analysis (sync)")
+        else:
+            system_prompt = LegalAnalysisPrompts.get_system_prompt(language)
+            user_content = LegalAnalysisPrompts.USER_TEMPLATE.format(
+                reformulated_query=reformulated_query,
+                laws_context=laws_context,
+                decisions_context=decisions_context,
+            )
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ]
 
-        response = self.client.chat(messages, max_tokens=8192, temperature=0.4, model=self.analysis_model)
+        # Use web search API if enabled (placeholder - falls back to standard)
+        if web_search:
+            response = self.client.chat_with_web_search(
+                messages, max_tokens=8192, temperature=0.4, model=self.analysis_model
+            )
+        else:
+            response = self.client.chat(messages, max_tokens=8192, temperature=0.4, model=self.analysis_model)
         return response.content, response
 
     def build_context(
