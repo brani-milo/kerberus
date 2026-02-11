@@ -43,6 +43,16 @@ data/redis_data/
 data/postgres_data/
 data/dossier/
 
+# Scraped data (mount as volumes for processing)
+data/federal_archive_full/
+data/ticino/
+data/fedlex/
+data/parsed/
+data/raw/
+data/processed/
+data/state/
+data/reviews/
+
 # Test files
 tests/
 *.test.py
