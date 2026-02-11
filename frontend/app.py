@@ -109,6 +109,11 @@ def get_auth_components():
     global auth_db, rate_limiter
     if auth_db is None:
         auth_db = get_auth_db()
+        # Run migrations to ensure schema is up to date
+        try:
+            auth_db.migrate_add_backup_codes_column()
+        except Exception as e:
+            logger.warning(f"Migration check failed (may be OK): {e}")
     if rate_limiter is None:
         rate_limiter = get_rate_limiter()
     return auth_db, rate_limiter
