@@ -52,7 +52,7 @@ logging.basicConfig(
 logger = logging.getLogger("Pipeline")
 
 # Court configuration (order matters - larger courts first for better pipelining)
-COURTS = [
+FEDERAL_COURTS = [
     "CH_BGer",   # ~186k files (largest)
     "CH_BVGer",  # ~91k files
     "CH_BGE",    # ~42k files
@@ -61,10 +61,17 @@ COURTS = [
     "CH_BPatG",  # ~200 files (smallest)
 ]
 
+CANTONAL_COURTS = [
+    "ticino",    # ~57k files
+]
+
+ALL_COURTS = FEDERAL_COURTS + CANTONAL_COURTS
+
 # Paths
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 FEDERAL_RAW_DIR = DATA_DIR / "federal_archive_full"
+TICINO_RAW_DIR = DATA_DIR / "ticino"
 PARSED_DIR = DATA_DIR / "parsed"
 FEDLEX_DIR = DATA_DIR / "fedlex"
 
@@ -80,7 +87,9 @@ def count_files(directory: Path, extensions: List[str]) -> int:
 def get_court_stats() -> dict:
     """Get file counts for each court."""
     stats = {}
-    for court in COURTS:
+
+    # Federal courts
+    for court in FEDERAL_COURTS:
         court_dir = FEDERAL_RAW_DIR / court
         if court_dir.exists():
             html_count = len(list(court_dir.glob("*.html")))
@@ -88,6 +97,14 @@ def get_court_stats() -> dict:
             stats[court] = {"html": html_count, "pdf": pdf_count, "total": html_count + pdf_count}
         else:
             stats[court] = {"html": 0, "pdf": 0, "total": 0}
+
+    # Ticino
+    if TICINO_RAW_DIR.exists():
+        html_count = len(list(TICINO_RAW_DIR.glob("*.html")))
+        stats["ticino"] = {"html": html_count, "pdf": 0, "total": html_count}
+    else:
+        stats["ticino"] = {"html": 0, "pdf": 0, "total": 0}
+
     return stats
 
 
@@ -97,6 +114,10 @@ def parse_court(court: str) -> Tuple[bool, int, float]:
 
     Returns: (success, file_count, duration_seconds)
     """
+    # Handle Ticino separately
+    if court == "ticino":
+        return parse_ticino()
+
     from src.parsers.federal_parser import FederalParser
 
     court_dir = FEDERAL_RAW_DIR / court
@@ -144,6 +165,58 @@ def parse_court(court: str) -> Tuple[bool, int, float]:
     return True, success_count, duration
 
 
+def parse_ticino() -> Tuple[bool, int, float]:
+    """
+    Parse all Ticino cantonal court decisions.
+
+    Returns: (success, file_count, duration_seconds)
+    """
+    from src.parsers.ticino_parser import TicinoParser
+
+    output_dir = PARSED_DIR / "ticino"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if not TICINO_RAW_DIR.exists():
+        logger.warning(f"Ticino directory not found: {TICINO_RAW_DIR}")
+        return False, 0, 0
+
+    # Collect files
+    files = list(TICINO_RAW_DIR.glob("*.html"))
+
+    if not files:
+        logger.warning("No files found for Ticino")
+        return True, 0, 0
+
+    logger.info(f"Parsing {len(files)} files for Ticino...")
+    start_time = time.time()
+
+    parser = TicinoParser()
+    success_count = 0
+    error_count = 0
+
+    for file_path in tqdm(files, desc="Parsing Ticino"):
+        try:
+            # Skip if already parsed
+            output_file = output_dir / f"{file_path.stem}.json"
+            if output_file.exists():
+                success_count += 1
+                continue
+
+            data = parser.parse(file_path)
+            parser.save_json(data, output_file)
+            success_count += 1
+
+        except Exception as e:
+            error_count += 1
+            if error_count <= 5:  # Only log first 5 errors
+                logger.error(f"Error parsing {file_path.name}: {e}")
+
+    duration = time.time() - start_time
+    logger.info(f"Parsed Ticino: {success_count}/{len(files)} files in {duration:.1f}s ({error_count} errors)")
+
+    return True, success_count, duration
+
+
 def embed_court(court: str, batch_size: int = 4) -> Tuple[bool, int, float]:
     """
     Embed all parsed files for a specific court.
@@ -153,7 +226,11 @@ def embed_court(court: str, batch_size: int = 4) -> Tuple[bool, int, float]:
     from src.embedder import get_embedder, BatchEmbeddingProcessor
     from src.database.vector_db import QdrantManager
 
-    parsed_dir = PARSED_DIR / "federal" / court
+    # Determine parsed directory based on court
+    if court == "ticino":
+        parsed_dir = PARSED_DIR / "ticino"
+    else:
+        parsed_dir = PARSED_DIR / "federal" / court
 
     if not parsed_dir.exists():
         logger.warning(f"Parsed directory not found: {parsed_dir}")
@@ -379,9 +456,11 @@ def run_pipeline(
 
 def main():
     parser = argparse.ArgumentParser(description="Parse & Embed Pipeline (Option 2)")
-    parser.add_argument("--courts-only", action="store_true", help="Only process federal courts")
+    parser.add_argument("--courts-only", action="store_true", help="Only process courts (no Fedlex)")
+    parser.add_argument("--federal-only", action="store_true", help="Only process federal courts")
+    parser.add_argument("--ticino-only", action="store_true", help="Only process Ticino")
     parser.add_argument("--fedlex-only", action="store_true", help="Only process Fedlex laws")
-    parser.add_argument("--court", type=str, help="Process single court (e.g., CH_BGE)")
+    parser.add_argument("--court", type=str, help="Process single court (e.g., CH_BGE, ticino)")
     parser.add_argument("--batch-size", type=int, default=4, help="Embedding batch size")
     parser.add_argument("--dry-run", action="store_true", help="Show plan without executing")
     args = parser.parse_args()
@@ -390,15 +469,21 @@ def main():
     if args.fedlex_only:
         courts = []
         include_fedlex = True
+    elif args.ticino_only:
+        courts = ["ticino"]
+        include_fedlex = False
+    elif args.federal_only:
+        courts = FEDERAL_COURTS
+        include_fedlex = False
     elif args.court:
-        if args.court not in COURTS:
+        if args.court not in ALL_COURTS:
             print(f"Unknown court: {args.court}")
-            print(f"Available courts: {', '.join(COURTS)}")
+            print(f"Available courts: {', '.join(ALL_COURTS)}")
             sys.exit(1)
         courts = [args.court]
         include_fedlex = False
     else:
-        courts = COURTS
+        courts = ALL_COURTS
         include_fedlex = not args.courts_only
 
     # Run pipeline
