@@ -75,10 +75,13 @@ def get_data_layer() -> Optional[EncryptedChainlitDataLayer]:
     return _data_layer
 
 
-@cl.data_layer
-def data_layer():
-    """Chainlit data layer provider - returns encrypted PostgreSQL storage."""
-    return get_data_layer()
+# TODO: Fix EncryptedChainlitDataLayer compatibility with Chainlit 2.x
+# Missing methods: create_step, update_step, get_user returns None
+# Disabled temporarily to allow login
+# @cl.data_layer
+# def data_layer():
+#     """Chainlit data layer provider - returns encrypted PostgreSQL storage."""
+#     return get_data_layer()
 
 # Global instances (initialized lazily)
 triad_search = None
