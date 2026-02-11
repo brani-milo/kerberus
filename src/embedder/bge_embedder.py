@@ -3,7 +3,7 @@ BGE-M3 Embedder for KERBERUS Legal Intelligence.
 
 Optimized for:
 - Multilingual Swiss legal text (DE/FR/IT)
-- Apple Silicon (MPS acceleration)
+- Auto-detection: CUDA (NVIDIA) → MPS (Apple) → CPU
 - Memory efficiency (<3GB RAM)
 - Both single-query and batch processing
 """
@@ -39,7 +39,7 @@ class BGEEmbedder:
     def __init__(
         self,
         model_name: str = "BAAI/bge-m3",
-        device: str = "mps",
+        device: Optional[str] = None,
         max_length: int = 2048,
         use_fp16: bool = True
     ):
@@ -48,12 +48,12 @@ class BGEEmbedder:
 
         Args:
             model_name: HuggingFace model identifier
-            device: "mps" (Apple Silicon), "cuda" (NVIDIA), or "cpu"
+            device: None (auto-detect), "cuda" (NVIDIA), "mps" (Apple), or "cpu"
             max_length: Maximum token length (8192 for BGE-M3)
             use_fp16: Use half-precision (saves memory, slight speed boost)
         """
         self.model_name = model_name
-        self.device = device
+        self.device = device if device else get_best_device()
         self.max_length = max_length
         self.use_fp16 = use_fp16
         self._model = None
@@ -231,15 +231,24 @@ def get_best_device() -> str:
     Returns:
         Device string: "cuda", "mps", or "cpu"
     """
+    # Check CUDA first
     if torch.cuda.is_available():
         logger.info(f"CUDA available: {torch.cuda.get_device_name(0)}")
         return "cuda"
-    elif torch.backends.mps.is_available():
-        logger.info("Apple Silicon MPS available")
-        return "mps"
-    else:
-        logger.info("No GPU detected, using CPU")
-        return "cpu"
+
+    # Check MPS (Apple Silicon) with safety wrapper
+    try:
+        if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            # Additional check: verify MPS is actually usable
+            if torch.backends.mps.is_built():
+                logger.info("Apple Silicon MPS available")
+                return "mps"
+    except Exception as e:
+        logger.debug(f"MPS check failed (expected on Linux): {e}")
+
+    # Fallback to CPU
+    logger.info("No GPU detected, using CPU")
+    return "cpu"
 
 
 # Singleton instance (loaded once at startup)
