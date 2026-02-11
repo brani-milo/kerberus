@@ -55,11 +55,12 @@ class BGEEmbedder:
         self.model_name = model_name
         self.device = device if device else get_best_device()
         self.max_length = max_length
-        self.use_fp16 = use_fp16
+        # Disable fp16 on CPU (not supported)
+        self.use_fp16 = use_fp16 if self.device != "cpu" else False
         self._model = None
         self._lock = asyncio.Lock()
 
-        logger.info(f"Initializing BGE-M3 Embedder (device={device}, fp16={use_fp16})")
+        logger.info(f"Initializing BGE-M3 Embedder (device={self.device}, fp16={self.use_fp16})")
         self._load_model()
 
     def _load_model(self):
