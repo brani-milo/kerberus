@@ -422,8 +422,11 @@ Die Rechtslage zeigt ein gemischtes Bild (🟡 MIXED).
         )
 
     # =========================================================================
-    # Web Search Methods (Placeholder - awaiting provider API access)
+    # Web Search Methods (Placeholder - will use Swiss Safe Cloud)
     # =========================================================================
+    # NOTE: Web search uses a DIFFERENT provider (Swiss Safe Cloud) than
+    # standard Qwen (Infomaniak). This is a placeholder until Swiss Safe Cloud
+    # API access is granted. The actual implementation may differ significantly.
 
     def chat_with_web_search(
         self,
@@ -435,8 +438,8 @@ Die Rechtslage zeigt ein gemischtes Bild (🟡 MIXED).
         """
         Send chat request with web search enabled.
 
-        NOTE: This is a placeholder. The actual implementation depends on
-        the provider's web search API specification.
+        NOTE: Web search will use Swiss Safe Cloud (different from Infomaniak).
+        This is a placeholder until API access is granted.
 
         Args:
             messages: Chat messages
@@ -447,14 +450,14 @@ Die Rechtslage zeigt ein gemischtes Bild (🟡 MIXED).
         Returns:
             LLMResponse with web search results integrated
         """
-        # TODO: Implement when provider grants web search API access
-        # Expected API parameters (to be confirmed):
-        # - enable_web_search: bool
-        # - search_depth: "basic" | "advanced"
-        # - search_recency: "day" | "week" | "month" | "any"
-        # - max_search_results: int
+        # TODO: Implement Swiss Safe Cloud web search API
+        # Provider: Swiss Safe Cloud (NOT Infomaniak)
+        # Expected to need:
+        # - Different API endpoint (SWISS_SAFE_CLOUD_API_URL)
+        # - Different API key (SWISS_SAFE_CLOUD_API_KEY)
+        # - Web search specific parameters (TBD by provider)
 
-        logger.warning("Web search not yet implemented - falling back to standard chat")
+        logger.warning("Web search not yet implemented (awaiting Swiss Safe Cloud API) - falling back to standard chat")
         return self.chat(messages, max_tokens, temperature, model)
 
     def chat_stream_with_web_search(
@@ -467,8 +470,8 @@ Die Rechtslage zeigt ein gemischtes Bild (🟡 MIXED).
         """
         Stream chat response with web search enabled.
 
-        NOTE: This is a placeholder. The actual implementation depends on
-        the provider's web search API specification.
+        NOTE: Web search will use Swiss Safe Cloud (different from Infomaniak).
+        This is a placeholder until API access is granted.
 
         Args:
             messages: Chat messages
@@ -482,11 +485,11 @@ Die Rechtslage zeigt ein gemischtes Bild (🟡 MIXED).
         Returns:
             Final LLMResponse with usage stats
         """
-        # TODO: Implement when provider grants web search API access
-        # The streaming endpoint may need special handling for web search
-        # results (e.g., citations, source URLs)
+        # TODO: Implement Swiss Safe Cloud web search streaming API
+        # Provider: Swiss Safe Cloud (NOT Infomaniak)
+        # May require separate client class (SwissSafeCloudClient)
 
-        logger.warning("Web search streaming not yet implemented - falling back to standard stream")
+        logger.warning("Web search streaming not yet implemented (awaiting Swiss Safe Cloud API) - falling back to standard stream")
         return self.chat_stream(messages, max_tokens, temperature, model)
 
 

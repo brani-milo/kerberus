@@ -78,6 +78,15 @@ User Query → Mistral 1 (Guard) → Search → Mistral 2 (Reformulate) → Qwen
 - **Stage 3: Reformulate** - Structure query for legal analysis (Mistral)
 - **Stage 4: Legal Analysis** - Full analysis with dual-language citations (Qwen)
 
+**LLM Providers (Swiss Data Sovereignty):**
+- **Infomaniak AI** - Primary LLM provider for all standard queries
+  - Qwen3-235B: Premium model for legal analysis
+  - Mistral-Small-3.2-24B: Cost-efficient model for guard & reformulation
+  - Swiss-hosted inference (no US CLOUD Act exposure)
+- **Swiss Safe Cloud** (Planned) - Web search augmented queries
+  - For queries requiring real-time web information
+  - Separate provider to maintain Swiss data sovereignty
+
 **Advanced RAG Pipeline:**
 - **BGE-M3 Hybrid Embeddings** - Dense (1024-dim semantic) + Sparse (lexical/BM25-like) with Reciprocal Rank Fusion (RRF)
 - **BGE-Reranker-v2-M3** - Cross-encoder precision ranking (processes query+document jointly for accurate relevance scoring)
@@ -314,6 +323,7 @@ API endpoints available at `http://localhost:8000`:
 - Full data ingestion pipeline (scrape → parse → embed)
 
 ### **🔜 Next**
+- **Web Search Integration** - Qwen with web search via Swiss Safe Cloud for real-time legal updates
 - Firm management (shared dossiers, role-based access)
 - Token usage billing and rate limiting
 
@@ -350,7 +360,9 @@ Requires replacing scrapers and adapting metadata schema for local court hierarc
 | **Auth DB** | PostgreSQL 15 |
 | **Encrypted Storage** | SQLCipher (AES-256) |
 | **Authentication** | bcrypt + TOTP (MFA) |
-| **LLM** | Qwen3-VL (235B) & Mistral-Small-3.2-24B |
+| **LLM Provider** | Infomaniak AI (Swiss data sovereignty) |
+| **LLM Models** | Qwen3-235B (analysis) & Mistral-Small-3.2-24B (guard/reformulate) |
+| **Web Search** | Swiss Safe Cloud (planned - web-augmented queries) |
 | **Deployment** | Docker + Infomaniak |
 | **Frontend** | Chainlit (conversational UI) |
 | **Testing** | pytest (68+ tests covering security, PII, dossier, embedder, reranker) |
