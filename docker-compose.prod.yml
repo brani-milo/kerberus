@@ -28,6 +28,7 @@ services:
       - conversation_encryption_key
     volumes:
       - dossier_data:/app/data/dossier
+      - /home/ubuntu/kerberus/data:/app/data/scraped
     depends_on:
       - qdrant
       - postgres
