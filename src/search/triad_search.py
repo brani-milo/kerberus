@@ -146,11 +146,12 @@ class TriadSearch:
             # Step 2: MMR diversification
             # Note: Increased lambda to 0.85 to reduce penalty on cantonal decisions
             # which might share metadata (source) with federal ones but are distinct
+            # Pipeline: 250 → 50 → 50 → 10 (hybrid → MMR → rerank → dedupe)
             diverse_results = apply_mmr(
                 candidates=candidates,
                 query_embedding=query_vectors['dense'],
                 lambda_param=0.85,
-                top_k=20
+                top_k=50  # Keep 50 for reranker to score
             )
 
             # Step 3: Rerank with confidence
@@ -169,11 +170,11 @@ class TriadSearch:
                 )
                 rerank_docs.append({'text': text, **doc})
 
-            # Rerank more candidates than needed (2x) to allow for deduplication
+            # Rerank all 50 candidates - deduplication will pick top 10 unique
             reranked = self.reranker.rerank_with_confidence(
                 query=query,
                 documents=rerank_docs,
-                top_k=top_k * 2  # Get 2x to have enough after dedup
+                top_k=50  # Score all 50, dedupe picks 10 unique
             )
 
             # Step 4: Deduplicate - keep only best chunk per unique document
@@ -266,11 +267,12 @@ class TriadSearch:
             all_results = sorted(all_results, key=lambda x: x['score'], reverse=True)[:250]
 
             # Apply MMR and rerank
+            # Pipeline: 250 → 50 → 50 → 10 (hybrid → MMR → rerank → dedupe)
             diverse_results = apply_mmr(
                 candidates=all_results,
                 query_embedding=query_vectors['dense'],
                 lambda_param=0.85,
-                top_k=20
+                top_k=50  # Keep 50 for reranker to score
             )
 
             # Extract text with fallback chain for dossier documents
@@ -286,11 +288,11 @@ class TriadSearch:
                 )
                 rerank_docs.append({'text': text, **doc})
 
-            # Rerank more candidates than needed (2x) to allow for deduplication
+            # Rerank all 50 candidates - deduplication will pick top 10 unique
             reranked = self.reranker.rerank_with_confidence(
                 query=query,
                 documents=rerank_docs,
-                top_k=top_k * 2  # Get 2x to have enough after dedup
+                top_k=50  # Score all 50, dedupe picks 10 unique
             )
 
             # Deduplicate - keep only best chunk per unique document
