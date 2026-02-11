@@ -1017,21 +1017,27 @@ async def on_message(message: cl.Message):
         await switch_to_review_mode()
         return
 
-    # Handle file uploads (only in review mode)
+    # Handle file uploads
     if message.elements:
-        if mode != "review":
-            actions = [cl.Action(name="mode_review", payload={"mode": "review"}, label="📊 Switch to Tabular Review")]
+        if mode == "review":
+            await handle_file_uploads(message.elements)
+            return
+        elif mode == "assistant":
+            # In assistant mode, include file content in the legal analysis
+            await handle_assistant_message(message, file_elements=message.elements)
+            return
+        else:
+            # Not in a valid mode yet
+            actions = get_mode_buttons()
             await cl.Message(
-                content="📎 File uploads are only available in **Tabular Review** mode.",
+                content="Please select a mode first to upload files.",
                 actions=actions
             ).send()
-        else:
-            await handle_file_uploads(message.elements)
-        return
+            return
 
     # Route to appropriate handler based on mode
     if mode == "assistant":
-        await handle_assistant_message(message)
+        await handle_assistant_message(message, file_elements=None)
     elif mode == "review":
         await handle_review_message(message)
     else:
@@ -1095,8 +1101,8 @@ Type the **number** or **name** of the preset to start (e.g., "1" or "Contract R
 # AI LEGAL ASSISTANT HANDLER
 # =============================================================================
 
-async def handle_assistant_message(message: cl.Message):
-    global triad_search, pipeline
+async def handle_assistant_message(message: cl.Message, file_elements: List = None):
+    global triad_search, pipeline, doc_processor
 
     # Check rate limit
     user = cl.user_session.get("user")
@@ -1119,6 +1125,37 @@ Please wait before making more queries, or contact support to increase your limi
 
         # Record this request
         rl.record_request(user_id)
+
+    # Parse uploaded files and include in context
+    uploaded_content = ""
+    uploaded_files_info = []
+
+    if file_elements:
+        if doc_processor is None:
+            doc_processor = DocumentProcessor()
+
+        for element in file_elements:
+            if hasattr(element, 'path') and element.path:
+                try:
+                    parsed = doc_processor.parse_file(element.path)
+                    file_text = parsed.full_text
+
+                    # Truncate very long documents (keep first 15000 chars)
+                    if len(file_text) > 15000:
+                        file_text = file_text[:15000] + "\n\n[... Document truncated for analysis ...]"
+
+                    uploaded_content += f"\n\n--- UPLOADED DOCUMENT: {element.name} ---\n{file_text}\n--- END OF {element.name} ---\n"
+                    uploaded_files_info.append(f"📄 {element.name} ({parsed.total_pages} pages)")
+
+                except Exception as e:
+                    logger.warning(f"Failed to parse uploaded file {element.name}: {e}")
+                    uploaded_files_info.append(f"❌ {element.name} (failed to parse)")
+
+        if uploaded_files_info:
+            await cl.Message(
+                content=f"**Uploaded files included in analysis:**\n" + "\n".join(uploaded_files_info),
+                author="system"
+            ).send()
 
     settings = cl.user_session.get("filters") or {}
     chat_history = cl.user_session.get("chat_history") or []
@@ -1144,9 +1181,14 @@ Please wait before making more queries, or contact support to increase your limi
         status_msg = cl.Message(content="_🛡️ Security check and query optimization..._")
         await status_msg.send()
 
+        # Build full query (user message + uploaded content)
+        full_query = message.content
+        if uploaded_content:
+            full_query = f"{message.content}\n\n[USER UPLOADED THE FOLLOWING DOCUMENT(S) FOR ANALYSIS:]{uploaded_content}"
+
         # STAGE 1: Guard & Enhance
         try:
-            guard_result = pipeline.guard_and_enhance(message.content)
+            guard_result = pipeline.guard_and_enhance(full_query)
             
             if guard_result.status == "BLOCKED":
                 msg.content = f"""⚠️ **Request blocked**
