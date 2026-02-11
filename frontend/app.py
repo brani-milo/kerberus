@@ -76,7 +76,7 @@ def get_data_layer() -> Optional[EncryptedChainlitDataLayer]:
 
 
 @cl.data_layer
-async def data_layer():
+def data_layer():
     """Chainlit data layer provider - returns encrypted PostgreSQL storage."""
     return get_data_layer()
 
