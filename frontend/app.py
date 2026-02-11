@@ -992,6 +992,19 @@ async def on_message(message: cl.Message):
         await handle_mfa_setup_verification(text)
         return
 
+    # Handle MFA setup - allow typing code directly without clicking button
+    if mode == "mfa_setup":
+        # Check if input looks like a 6-digit code
+        clean_code = text.replace(" ", "").replace("-", "")
+        if clean_code.isdigit() and len(clean_code) == 6:
+            await handle_mfa_setup_verification(text)
+            return
+        else:
+            await cl.Message(
+                content="Please enter the **6-digit code** from your authenticator app, or click 'I've scanned it' above."
+            ).send()
+            return
+
     # Block users who haven't set up MFA yet
     if mode == "mfa_setup_required":
         await cl.Message(
