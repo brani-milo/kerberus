@@ -36,7 +36,7 @@ class TriadSearch:
         qdrant_port: int = 6333
     ):
         """Initialize Triad Search."""
-        self.embedder = get_embedder(device="mps")
+        self.embedder = get_embedder()  # Auto-detect: CUDA → MPS → CPU
         self.reranker = get_reranker(device="cpu")
         self.vector_db = QdrantManager(host=qdrant_host, port=qdrant_port)
 
