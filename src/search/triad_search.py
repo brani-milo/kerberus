@@ -32,8 +32,8 @@ class TriadSearch:
 
     def __init__(
         self,
-        qdrant_host: str = "localhost",
-        qdrant_port: int = 6333
+        qdrant_host: str = None,
+        qdrant_port: int = None
     ):
         """Initialize Triad Search."""
         self.embedder = get_embedder()  # Auto-detect: CUDA → MPS → CPU
@@ -129,7 +129,7 @@ class TriadSearch:
                 collection_name=collection_name,
                 dense_vector=query_vectors['dense'],
                 sparse_vector=query_vectors['sparse'],
-                limit=250,
+                limit=500,  # Increased from 250 to capture more candidates
                 filters=lane_filters
             )
             
@@ -146,12 +146,12 @@ class TriadSearch:
             # Step 2: MMR diversification
             # Note: Increased lambda to 0.85 to reduce penalty on cantonal decisions
             # which might share metadata (source) with federal ones but are distinct
-            # Pipeline: 250 → 50 → 50 → 10 (hybrid → MMR → rerank → dedupe)
+            # Pipeline: 500 → 100 → 100 → 10 (hybrid → MMR → rerank → dedupe)
             diverse_results = apply_mmr(
                 candidates=candidates,
                 query_embedding=query_vectors['dense'],
                 lambda_param=0.85,
-                top_k=50  # Keep 50 for reranker to score
+                top_k=100  # Increased from 50 to capture more diverse candidates
             )
 
             # Step 3: Rerank with confidence
@@ -170,11 +170,11 @@ class TriadSearch:
                 )
                 rerank_docs.append({'text': text, **doc})
 
-            # Rerank all 50 candidates - deduplication will pick top 10 unique
+            # Rerank all 100 candidates - deduplication will pick top 10 unique
             reranked = self.reranker.rerank_with_confidence(
                 query=query,
                 documents=rerank_docs,
-                top_k=50  # Score all 50, dedupe picks 10 unique
+                top_k=100  # Score all 100, dedupe picks 10 unique
             )
 
             # Step 4: Deduplicate - keep only best chunk per unique document
@@ -246,7 +246,7 @@ class TriadSearch:
                         collection_name=col,
                         dense_vector=query_vectors['dense'],
                         sparse_vector=query_vectors['sparse'],
-                        limit=125,  # 125 per collection = 250 total (if 2 cols)
+                        limit=250,  # 250 per collection = 500 total (if 2 cols)
                         filters=filters
                     )
                     if results:
@@ -263,16 +263,16 @@ class TriadSearch:
                     'message': 'No relevant documents in dossier'
                 }
 
-            # Sort by score and take top 250
-            all_results = sorted(all_results, key=lambda x: x['score'], reverse=True)[:250]
+            # Sort by score and take top 500
+            all_results = sorted(all_results, key=lambda x: x['score'], reverse=True)[:500]
 
             # Apply MMR and rerank
-            # Pipeline: 250 → 50 → 50 → 10 (hybrid → MMR → rerank → dedupe)
+            # Pipeline: 500 → 100 → 100 → 10 (hybrid → MMR → rerank → dedupe)
             diverse_results = apply_mmr(
                 candidates=all_results,
                 query_embedding=query_vectors['dense'],
                 lambda_param=0.85,
-                top_k=50  # Keep 50 for reranker to score
+                top_k=100  # Keep 100 for reranker to score
             )
 
             # Extract text with fallback chain for dossier documents
@@ -288,11 +288,11 @@ class TriadSearch:
                 )
                 rerank_docs.append({'text': text, **doc})
 
-            # Rerank all 50 candidates - deduplication will pick top 10 unique
+            # Rerank all 100 candidates - deduplication will pick top 10 unique
             reranked = self.reranker.rerank_with_confidence(
                 query=query,
                 documents=rerank_docs,
-                top_k=50  # Score all 50, dedupe picks 10 unique
+                top_k=100  # Score all 100, dedupe picks 10 unique
             )
 
             # Deduplicate - keep only best chunk per unique document
