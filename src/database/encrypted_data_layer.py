@@ -229,7 +229,7 @@ class EncryptedChainlitDataLayer:
         if database_url is None:
             database_url = self._build_database_url()
 
-        self._engine = create_engine(database_url, pool_pre_ping=True)
+        self._engine = create_engine(database_url, pool_pre_ping=True, pool_recycle=300)
         self._Session = sessionmaker(bind=self._engine)
         self._encryptor = ConversationEncryptor(encryption_key)
 

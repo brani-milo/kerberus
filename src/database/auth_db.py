@@ -71,7 +71,9 @@ class AuthDB:
             poolclass=QueuePool,
             pool_size=10,
             max_overflow=20,
-            pool_timeout=30
+            pool_timeout=30,
+            pool_pre_ping=True,  # Test connections before use (detect stale)
+            pool_recycle=300,    # Recycle connections every 5 minutes
         )
         self.Session = sessionmaker(bind=self.engine)
 
