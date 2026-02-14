@@ -984,6 +984,7 @@ Once you've added it to your authenticator, click "I've scanned it" above and en
 @cl.on_message
 async def on_message(message: cl.Message):
     mode = cl.user_session.get("mode", "start")
+    logger.info(f"on_message: mode={mode}, text={message.content[:50]}...")
     text = message.content.strip()
     lower_text = text.lower()
 
