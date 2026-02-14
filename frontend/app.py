@@ -1209,8 +1209,11 @@ Please wait before making more queries, or contact support to increase your limi
 
         # STAGE 1: Guard & Enhance
         try:
-            guard_result = pipeline.guard_and_enhance(full_query)
-            
+            logger.info("STAGE 1: Starting guard_and_enhance...")
+            # Run synchronous LLM call in thread to avoid blocking event loop
+            guard_result = await asyncio.to_thread(pipeline.guard_and_enhance, full_query)
+            logger.info("STAGE 1: guard_and_enhance completed")
+
             if guard_result.status == "BLOCKED":
                 msg.content = f"""⚠️ **Request blocked**
 
@@ -1285,10 +1288,13 @@ Please try:
         # STAGE 3: Reformulate
         status_msg.content = "_📝 Structuring request..._"
         await status_msg.update()
-        
+
+        logger.info("STAGE 3: Starting reformulate...")
         topics = legal_concepts if legal_concepts else ["general legal question"]
 
-        reformulated_query, reformulate_response = pipeline.reformulate(
+        # Run synchronous LLM call in thread to avoid blocking event loop
+        reformulated_query, reformulate_response = await asyncio.to_thread(
+            pipeline.reformulate,
             original_query=message.content,
             enhanced_query=enhanced_query,
             language=detected_language,
@@ -1296,11 +1302,13 @@ Please try:
             decision_count=len(library_results),
             topics=topics,
         )
+        logger.info("STAGE 3: Reformulate completed")
 
         # STAGE 4: Build Context
         status_msg.content = "_📄 Loading full documents..._"
         await status_msg.update()
 
+        logger.info("STAGE 4: Starting build_context...")
         codex_for_context = [
             {"id": r.get("id"), "score": r.get("final_score", r.get("score", 0)), "payload": r.get("payload", {})}
             for r in codex_results
@@ -1310,17 +1318,21 @@ Please try:
             for r in library_results
         ]
 
-        laws_context, decisions_context, context_meta = pipeline.build_context(
+        # Run synchronous Qdrant calls in thread to avoid blocking event loop
+        laws_context, decisions_context, context_meta = await asyncio.to_thread(
+            pipeline.build_context,
             codex_results=codex_for_context,
             library_results=library_for_context,
             max_laws=10,
             max_decisions=15,
         )
+        logger.info(f"STAGE 4: build_context completed - laws={context_meta.get('laws_count', 0)}, decisions={context_meta.get('decisions_count', 0)}")
 
         # STAGE 5: Legal Analysis
         status_msg.content = "_⚖️ Generating legal analysis..._"
         await status_msg.update()
-        
+
+        logger.info("STAGE 5: Starting legal analysis...")
         web_search_enabled = settings.get("web_search", False)
 
         # Remove status message before streaming answer
@@ -1345,7 +1357,12 @@ Please try:
 
         full_response = []
         try:
-            stream_gen = pipeline.analyze(
+            logger.info("STAGE 5: Starting analysis (non-streaming to avoid event loop blocking)...")
+
+            # Use non-streaming version to avoid event loop blocking
+            # The streaming version blocks the event loop during HTTP iteration
+            analysis_text, final_response = await asyncio.to_thread(
+                pipeline.analyze_sync,
                 reformulated_query=reformulated_query,
                 laws_context=laws_context,
                 decisions_context=decisions_context,
@@ -1353,17 +1370,20 @@ Please try:
                 web_search=web_search_enabled,
             )
 
-            for chunk in stream_gen:
-                full_response.append(chunk)
-                msg.content = "".join(full_response)
+            # Stream the already-received response to the UI
+            logger.info("STAGE 5: Analysis received, streaming to UI...")
+            full_response = [analysis_text]
+            chunk_size = 50  # Characters per chunk
+            for i in range(0, len(analysis_text), chunk_size):
+                chunk = analysis_text[i:i + chunk_size]
+                msg.content = analysis_text[:i + chunk_size]
                 await msg.stream_token(chunk)
+                await asyncio.sleep(0.01)  # Small delay for UI rendering
 
-            try:
-                final_response = stream_gen.send(None)
-            except StopIteration as e:
-                final_response = e.value
+            logger.info("STAGE 5: Analysis complete")
 
         except Exception as e:
+            logger.error(f"STAGE 5: Analysis error: {e}")
             msg.content = f"""**Analysis Error:** {str(e)}
 
 The search was successful. Please try again."""
