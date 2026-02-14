@@ -1362,14 +1362,26 @@ Please try:
 
             # Use non-streaming version to avoid event loop blocking
             # The streaming version blocks the event loop during HTTP iteration
-            analysis_text, final_response = await asyncio.to_thread(
+            # Run analysis in background task so we can send heartbeat updates
+            analysis_task = asyncio.create_task(asyncio.to_thread(
                 pipeline.analyze_sync,
                 reformulated_query=reformulated_query,
                 laws_context=laws_context,
                 decisions_context=decisions_context,
                 language=detected_language,
                 web_search=web_search_enabled,
-            )
+            ))
+
+            # Send heartbeat updates while waiting for analysis
+            dots = 0
+            while not analysis_task.done():
+                dots = (dots % 3) + 1
+                msg.content = f"_⚖️ Analyzing{'.' * dots}_"
+                await msg.update()
+                await asyncio.sleep(2)  # Update every 2 seconds
+
+            # Get the result
+            analysis_text, final_response = await analysis_task
 
             # Stream the already-received response to the UI
             logger.info("STAGE 5: Analysis received, streaming to UI...")
