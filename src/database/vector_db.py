@@ -44,7 +44,8 @@ class QdrantManager:
         """
         self.host = host
         self.port = port
-        self.client = QdrantClient(host=host, port=port, api_key=api_key)
+        # Increased timeout for large collections (default is 5 seconds)
+        self.client = QdrantClient(host=host, port=port, api_key=api_key, timeout=120)
 
         logger.info(f"Connected to Qdrant at {host}:{port}")
 
