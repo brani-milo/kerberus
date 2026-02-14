@@ -1383,6 +1383,21 @@ Please try:
             # Get the result
             analysis_text, final_response = await analysis_task
 
+            # Clean up JSON consistency block from response and extract it
+            import re
+            consistency_match = re.search(r'```json\s*(\{[^}]+\})\s*```', analysis_text)
+            consistency_info = ""
+            if consistency_match:
+                try:
+                    consistency_data = json.loads(consistency_match.group(1))
+                    consistency = consistency_data.get("consistency", "MIXED")
+                    confidence = consistency_data.get("confidence", "medium")
+                    consistency_info = get_consistency_indicator(consistency, confidence)
+                    # Remove the JSON block from the text
+                    analysis_text = re.sub(r'```json\s*\{[^}]+\}\s*```', '', analysis_text).strip()
+                except json.JSONDecodeError:
+                    pass
+
             # Stream the already-received response to the UI
             logger.info("STAGE 5: Analysis received, streaming to UI...")
             full_response = [analysis_text]
@@ -1392,6 +1407,11 @@ Please try:
                 msg.content = analysis_text[:i + chunk_size]
                 await msg.stream_token(chunk)
                 await asyncio.sleep(0.01)  # Small delay for UI rendering
+
+            # Add consistency indicator at the end if found
+            if consistency_info:
+                msg.content = analysis_text + f"\n\n---\n**{consistency_info}**"
+                await msg.update()
 
             logger.info("STAGE 5: Analysis complete")
 
@@ -1417,12 +1437,20 @@ The search was successful. Please try again."""
         chat_history.append({"role": "user", "content": message.content})
         chat_history.append({"role": "assistant", "content": "".join(full_response)})
         cl.user_session.set("chat_history", chat_history[-10:])
+        logger.info("Chat history updated, persisting messages...")
 
         # Persist to encrypted storage
-        await persist_messages(
-            user_message=message.content,
-            assistant_message="".join(full_response)
-        )
+        try:
+            await persist_messages(
+                user_message=message.content,
+                assistant_message="".join(full_response)
+            )
+            logger.info("Messages persisted successfully")
+        except Exception as pe:
+            logger.error(f"Failed to persist messages: {pe}")
+            # Don't raise - persistence failure shouldn't break the chat
+
+        logger.info("handle_assistant_message completed successfully")
 
     except Exception as e:
         msg.content = f"**Error:** {str(e)}"
