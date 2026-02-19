@@ -142,7 +142,7 @@ class ContextAssembler:
         full_texts = {}
         unique_results = []
 
-        for decision_id, chunks in list(decision_chunks.items())[:3]:  # Limit to top 3 decisions
+        for decision_id, chunks in list(decision_chunks.items())[:10]:  # Limit to top 10 unique decisions
             try:
                 # Fetch all chunks for this decision from Qdrant
                 all_chunks = self._fetch_all_chunks(decision_id)
