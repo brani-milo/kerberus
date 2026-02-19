@@ -36,6 +36,31 @@ def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
     return float(dot_product / (norm1 * norm2))
 
 
+def _normalize_decision_id(decision_id: str) -> str:
+    """
+    Normalize decision ID for consistent deduplication.
+
+    Handles:
+    - Case normalization (BGE 102 IA 35 == BGE 102 Ia 35)
+    - Chunk suffix removal (BGE-102-IA-35_chunk_2 -> BGE-102-IA-35)
+    - Whitespace/dash normalization
+    """
+    if not decision_id:
+        return ""
+
+    # Remove chunk suffix
+    if "_chunk_" in decision_id:
+        decision_id = decision_id.split("_chunk_")[0]
+
+    # Normalize to uppercase for consistent comparison
+    normalized = decision_id.upper().strip()
+
+    # Normalize separators (spaces and dashes)
+    normalized = normalized.replace(" ", "-").replace("--", "-")
+
+    return normalized
+
+
 def _get_document_key(doc: Dict) -> str:
     """
     Extract a unique key for a document based on payload metadata.
@@ -48,9 +73,9 @@ def _get_document_key(doc: Dict) -> str:
     if payload.get('sr_number'):
         return payload.get('sr_number')
 
-    # Court decisions
+    # Court decisions - normalize for consistent deduplication
     if payload.get('decision_id'):
-        return payload['decision_id']
+        return _normalize_decision_id(payload['decision_id'])
 
     # Dossier documents
     if payload.get('doc_id'):
@@ -58,7 +83,7 @@ def _get_document_key(doc: Dict) -> str:
 
     # Original ID fallback
     if payload.get('_original_id'):
-        return str(payload['_original_id'])
+        return _normalize_decision_id(str(payload['_original_id']))
 
     # Last resort: use the document id
     return str(doc.get('id', ''))

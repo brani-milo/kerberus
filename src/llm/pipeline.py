@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from .client import InfomaniakClient, LLMResponse, get_infomaniak_client
 from .prompts import GuardEnhancePrompts, ReformulatorPrompts, LegalAnalysisPrompts, WebSearchLegalPrompts
-from .context import ContextAssembler
+from .context import ContextAssembler, _normalize_decision_id
 
 logger = logging.getLogger(__name__)
 
@@ -348,8 +348,10 @@ class LegalPipeline:
 
         for result in library_results:
             payload = result.get("payload", {})
-            decision_id = payload.get("decision_id", "")
-            base_id = decision_id.split("_chunk_")[0] if "_chunk_" in str(decision_id) else decision_id
+            decision_id = payload.get("decision_id", "") or payload.get("_original_id", "")
+
+            # Normalize for consistent deduplication (handles case differences like BGE 102 IA vs Ia)
+            base_id = _normalize_decision_id(str(decision_id))
 
             if base_id in seen_ids:
                 continue
@@ -359,10 +361,9 @@ class LegalPipeline:
             court = payload.get("court", "")
             lang = payload.get("language", "de")
 
-            # Get full text if available
-            if base_id in full_texts:
-                text = full_texts[base_id]
-            else:
+            # Get full text if available (try normalized key first, then original)
+            text = full_texts.get(base_id) or full_texts.get(decision_id, "")
+            if not text:
                 text = payload.get("text_preview", "")
 
             # Build header

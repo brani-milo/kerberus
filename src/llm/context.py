@@ -17,6 +17,31 @@ from .prompts import LegalAnalysisPrompts
 logger = logging.getLogger(__name__)
 
 
+def _normalize_decision_id(decision_id: str) -> str:
+    """
+    Normalize decision ID for consistent deduplication.
+
+    Handles:
+    - Case normalization (BGE 102 IA 35 == BGE 102 Ia 35)
+    - Chunk suffix removal (BGE-102-IA-35_chunk_2 -> BGE-102-IA-35)
+    - Whitespace/dash normalization
+    """
+    if not decision_id:
+        return ""
+
+    # Remove chunk suffix
+    if "_chunk_" in decision_id:
+        decision_id = decision_id.split("_chunk_")[0]
+
+    # Normalize to uppercase for consistent comparison
+    normalized = decision_id.upper().strip()
+
+    # Normalize separators (spaces and dashes)
+    normalized = normalized.replace(" ", "-").replace("--", "-")
+
+    return normalized
+
+
 class ContextAssembler:
     """
     Assembles context for LLM from search results.
@@ -123,17 +148,12 @@ class ContextAssembler:
 
         for result in results:
             payload = result.get("payload", {})
-            decision_id = payload.get("decision_id", "")
+            decision_id = payload.get("decision_id", "") or payload.get("_original_id", "")
 
-            # Handle case where decision_id contains chunk suffix
-            if "_chunk_" in str(decision_id):
-                base_id = decision_id.split("_chunk_")[0]
-            else:
-                base_id = decision_id or payload.get("_original_id", "unknown")
-                if "_chunk_" in str(base_id):
-                    base_id = base_id.split("_chunk_")[0]
+            # Normalize decision ID for consistent deduplication
+            base_id = _normalize_decision_id(str(decision_id))
 
-            if base_id and base_id != "unknown":
+            if base_id and base_id != "UNKNOWN":
                 decision_chunks[base_id].append(result)
                 if base_id not in decision_metadata:
                     decision_metadata[base_id] = payload
