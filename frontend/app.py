@@ -1213,8 +1213,12 @@ Please wait before making more queries, or contact support to increase your limi
         try:
             logger.info("STAGE 1: Starting guard_and_enhance...")
             # Run synchronous LLM call in thread to avoid blocking event loop
-            guard_result = await asyncio.to_thread(pipeline.guard_and_enhance, full_query)
-            logger.info("STAGE 1: guard_and_enhance completed")
+            guard_result = await asyncio.to_thread(
+                pipeline.guard_and_enhance,
+                full_query,
+                chat_history  # Pass chat history for follow-up detection
+            )
+            logger.info(f"STAGE 1: guard_and_enhance completed (is_followup={guard_result.is_followup})")
 
             if guard_result.status == "BLOCKED":
                 msg.content = f"""⚠️ **Request blocked**
@@ -1234,58 +1238,99 @@ Please rephrase your question or contact support."""
             detected_language = guard_result.detected_language
             enhanced_query = guard_result.enhanced_query
             legal_concepts = guard_result.legal_concepts
-            
+            is_followup = guard_result.is_followup
+            followup_type = guard_result.followup_type
+
         except Exception as guard_error:
             logger.warning(f"Guard stage failed: {guard_error}")
             detected_language = "de"
             enhanced_query = message.content
             legal_concepts = []
+            is_followup = False
+            followup_type = None
 
-        # STAGE 2: TriadSearch
-        status_msg.content = "_🔍 Hybrid-Search + MMR + Reranking..._"
-        await status_msg.update()
-        
-        search_scope = settings.get("search_scope", "Both")
-        show_sources = settings.get("show_sources", True)
-        
-        search_results = await triad_search.search(
-            query=enhanced_query,
-            user_id=None,
-            firm_id=None,
-            filters=filters if filters else None,
-            top_k=50
-        )
+        # Check if this is a follow-up question
+        previous_context = cl.user_session.get("previous_context")
 
-        codex_results = []
-        library_results = []
-        codex_conf = "NONE"
-        library_conf = "NONE"
-        
-        if search_scope in ["Both", "Laws (Codex)"]:
-            codex_data = search_results.get('codex', {})
-            codex_results = codex_data.get('results', [])
-            codex_conf = codex_data.get('confidence', 'NONE')
+        if is_followup and previous_context:
+            # FOLLOW-UP: Skip search, use previous context
+            logger.info(f"STAGE 2: SKIPPED (follow-up detected: {followup_type})")
+            status_msg.content = "_📝 Processing follow-up request..._"
+            await status_msg.update()
 
-        if search_scope in ["Both", "Decisions (Library)"]:
-            library_data = search_results.get('library', {})
-            library_results = library_data.get('results', [])
-            library_conf = library_data.get('confidence', 'NONE')
+            codex_results = previous_context.get("codex_results", [])
+            library_results = previous_context.get("library_results", [])
+            codex_conf = previous_context.get("codex_conf", "NONE")
+            library_conf = previous_context.get("library_conf", "NONE")
+            show_sources = previous_context.get("show_sources", True)
+            search_scope = settings.get("search_scope", "Both")
 
-        if not codex_results and not library_results:
-            msg.content = """No relevant legal sources found.
+            # Regenerate sources element (Chainlit objects can't be stored)
+            sources_element = None
+            if show_sources and (codex_results or library_results):
+                sources_text = format_sources_collapsible(codex_results, library_results, codex_conf, library_conf)
+                sources_element = cl.Text(name="📚 Legal Sources", content=sources_text, display="side")
+
+            # Append follow-up instruction to the query for analysis
+            enhanced_query = f"[FOLLOW-UP REQUEST: {followup_type}]\nOriginal analysis topic: {previous_context.get('original_query', '')}\nUser's follow-up: {message.content}"
+        else:
+            # NEW QUESTION: Run full search
+            # STAGE 2: TriadSearch
+            status_msg.content = "_🔍 Hybrid-Search + MMR + Reranking..._"
+            await status_msg.update()
+
+            search_scope = settings.get("search_scope", "Both")
+            show_sources = settings.get("show_sources", True)
+
+            search_results = await triad_search.search(
+                query=enhanced_query,
+                user_id=None,
+                firm_id=None,
+                filters=filters if filters else None,
+                top_k=50
+            )
+
+            codex_results = []
+            library_results = []
+            codex_conf = "NONE"
+            library_conf = "NONE"
+
+            if search_scope in ["Both", "Laws (Codex)"]:
+                codex_data = search_results.get('codex', {})
+                codex_results = codex_data.get('results', [])
+                codex_conf = codex_data.get('confidence', 'NONE')
+
+            if search_scope in ["Both", "Decisions (Library)"]:
+                library_data = search_results.get('library', {})
+                library_results = library_data.get('results', [])
+                library_conf = library_data.get('confidence', 'NONE')
+
+            if not codex_results and not library_results:
+                msg.content = """No relevant legal sources found.
 
 Please try:
 - Different wording
 - More general terms"""
-            await msg.update()
-            await status_msg.remove()
-            return
+                await msg.update()
+                await status_msg.remove()
+                return
 
-        # Prepare sources but don't send yet
-        sources_element = None
-        if show_sources:
-            sources_text = format_sources_collapsible(codex_results, library_results, codex_conf, library_conf)
-            sources_element = cl.Text(name="📚 Legal Sources", content=sources_text, display="side")
+            # Prepare sources but don't send yet
+            sources_element = None
+            if show_sources:
+                sources_text = format_sources_collapsible(codex_results, library_results, codex_conf, library_conf)
+                sources_element = cl.Text(name="📚 Legal Sources", content=sources_text, display="side")
+
+            # Store context for potential follow-ups (don't store Chainlit objects)
+            cl.user_session.set("previous_context", {
+                "codex_results": codex_results,
+                "library_results": library_results,
+                "codex_conf": codex_conf,
+                "library_conf": library_conf,
+                "show_sources": show_sources,
+                "original_query": message.content,
+                "detected_language": detected_language,
+            })
 
         # STAGE 3: Reformulate
         status_msg.content = "_📝 Structuring request..._"

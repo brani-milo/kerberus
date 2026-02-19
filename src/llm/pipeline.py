@@ -35,6 +35,8 @@ class GuardResult:
     enhanced_query: str
     legal_concepts: List[str]
     query_type: str
+    is_followup: bool  # True if this is a follow-up to previous answer
+    followup_type: Optional[str]  # "draft_request", "clarification", "elaboration", or None
     response: LLMResponse
 
 
@@ -78,17 +80,40 @@ class LegalPipeline:
         self.analysis_model = ANALYSIS_MODEL
         self.context_assembler = ContextAssembler()
 
-    def guard_and_enhance(self, query: str) -> GuardResult:
+    def guard_and_enhance(self, query: str, chat_history: List[Dict] = None) -> GuardResult:
         """
         Stage 1: Guard & Enhance (cheap model)
 
         - Check for prompt injections
         - Detect language
+        - Detect follow-up questions
         - Enhance vague queries
         """
+        # Format chat context from history (last exchange only)
+        chat_context = ""
+        if chat_history and len(chat_history) >= 2:
+            # Get last user message and assistant response
+            last_messages = chat_history[-2:]
+            for msg in last_messages:
+                role = msg.get("role", "")
+                content = msg.get("content", "")[:500]  # Truncate for context
+                if role == "user":
+                    chat_context += f"User: {content}\n"
+                elif role == "assistant":
+                    chat_context += f"Assistant: {content}...\n"
+
+        # Choose template based on history
+        if chat_context:
+            user_content = GuardEnhancePrompts.USER_TEMPLATE.format(
+                query=query,
+                chat_context=chat_context
+            )
+        else:
+            user_content = GuardEnhancePrompts.USER_TEMPLATE_NO_HISTORY.format(query=query)
+
         messages = [
             {"role": "system", "content": GuardEnhancePrompts.SYSTEM},
-            {"role": "user", "content": GuardEnhancePrompts.USER_TEMPLATE.format(query=query)},
+            {"role": "user", "content": user_content},
         ]
 
         response = self.client.chat(messages, max_tokens=1024, temperature=0.1, model=self.guard_model)
@@ -112,6 +137,8 @@ class LegalPipeline:
                 enhanced_query=data.get("enhanced_query", query),
                 legal_concepts=data.get("legal_concepts", []),
                 query_type=data.get("query_type", "unclear"),
+                is_followup=data.get("is_followup", False),
+                followup_type=data.get("followup_type"),
                 response=response,
             )
 
@@ -126,6 +153,8 @@ class LegalPipeline:
                 enhanced_query=query,
                 legal_concepts=[],
                 query_type="unclear",
+                is_followup=False,
+                followup_type=None,
                 response=response,
             )
 
@@ -214,11 +243,11 @@ class LegalPipeline:
         # Use web search API if enabled (placeholder - falls back to standard)
         if web_search:
             return self.client.chat_stream_with_web_search(
-                messages, max_tokens=8192, temperature=0.4, model=self.analysis_model
+                messages, max_tokens=4096, temperature=0.4, model=self.analysis_model
             )
         else:
             return self.client.chat_stream(
-                messages, max_tokens=8192, temperature=0.4, model=self.analysis_model
+                messages, max_tokens=4096, temperature=0.4, model=self.analysis_model
             )
 
     def analyze_sync(
@@ -264,17 +293,17 @@ class LegalPipeline:
         # Use web search API if enabled (placeholder - falls back to standard)
         if web_search:
             response = self.client.chat_with_web_search(
-                messages, max_tokens=8192, temperature=0.4, model=self.analysis_model
+                messages, max_tokens=4096, temperature=0.4, model=self.analysis_model
             )
         else:
-            response = self.client.chat(messages, max_tokens=8192, temperature=0.4, model=self.analysis_model)
+            response = self.client.chat(messages, max_tokens=4096, temperature=0.4, model=self.analysis_model)
         return response.content, response
 
     def build_context(
         self,
         codex_results: List[Dict],
         library_results: List[Dict],
-        max_laws: int = 10,
+        max_laws: int = 20,
         max_decisions: int = 10,
     ) -> Tuple[str, str, Dict]:
         """
