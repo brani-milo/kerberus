@@ -23,15 +23,21 @@ def _normalize_decision_id(decision_id: str) -> str:
 
     Handles:
     - Case normalization (BGE 102 IA 35 == BGE 102 Ia 35)
-    - Chunk suffix removal (BGE-102-IA-35_chunk_2 -> BGE-102-IA-35)
+    - Chunk suffix removal in various formats:
+      - BGE-102-IA-35_chunk_2 -> BGE-102-IA-35
+      - BGer 001 1C-346-2008 2009-02-20 chunk 2 -> BGer 001 1C-346-2008 2009-02-20
     - Whitespace/dash normalization
     """
     if not decision_id:
         return ""
 
-    # Remove chunk suffix
+    # Remove chunk suffix (handle both "_chunk_" and " chunk " formats)
     if "_chunk_" in decision_id:
         decision_id = decision_id.split("_chunk_")[0]
+    elif " chunk " in decision_id.lower():
+        # Handle "BGer 001 1C-346-2008 2009-02-20 chunk 2" format
+        import re
+        decision_id = re.split(r'\s+chunk\s+\d+', decision_id, flags=re.IGNORECASE)[0]
 
     # Normalize to uppercase for consistent comparison
     normalized = decision_id.upper().strip()
