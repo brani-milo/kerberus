@@ -342,11 +342,16 @@ class LegalPipeline:
             fetch_full_documents=True,
         )
 
-        # Use the full texts for decisions
+        # Use the full texts for decisions - limit to 10 unique decisions
         decision_parts = []
         seen_ids = set()
+        MAX_UNIQUE_DECISIONS = 10
 
         for result in library_results:
+            # Stop once we have 10 unique decisions
+            if len(seen_ids) >= MAX_UNIQUE_DECISIONS:
+                break
+
             payload = result.get("payload", {})
             decision_id = payload.get("decision_id", "") or payload.get("_original_id", "")
 
@@ -365,6 +370,7 @@ class LegalPipeline:
             text = full_texts.get(base_id) or full_texts.get(decision_id, "")
             if not text:
                 text = payload.get("text_preview", "")
+                logger.warning(f"No full text for {base_id}, using chunk preview")
 
             # Build header
             if "BGE" in str(base_id):
