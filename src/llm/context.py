@@ -158,6 +158,15 @@ class ContextAssembler:
             payload = result.get("payload", {})
             original_id = payload.get("decision_id", "") or payload.get("_original_id", "")
 
+            # Strip chunk suffix from original_id for Qdrant lookup
+            # Qdrant stores decision_id without chunk suffix
+            clean_original_id = original_id
+            if "_chunk_" in clean_original_id:
+                clean_original_id = clean_original_id.split("_chunk_")[0]
+            elif " chunk " in clean_original_id.lower():
+                import re
+                clean_original_id = re.split(r'\s+chunk\s+\d+', clean_original_id, flags=re.IGNORECASE)[0].strip()
+
             # Normalize decision ID for consistent deduplication
             normalized_id = _normalize_decision_id(str(original_id))
 
@@ -165,8 +174,8 @@ class ContextAssembler:
                 decision_chunks[normalized_id].append(result)
                 if normalized_id not in decision_metadata:
                     decision_metadata[normalized_id] = payload
-                    # Store the original ID for Qdrant lookup
-                    original_ids[normalized_id] = original_id
+                    # Store the CLEAN original ID for Qdrant lookup (without chunk suffix)
+                    original_ids[normalized_id] = clean_original_id
 
         # Fetch all chunks for each unique decision
         full_texts = {}
