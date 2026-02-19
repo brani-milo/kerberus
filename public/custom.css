@@ -285,14 +285,15 @@ header .MuiTypography-h6 {
         0 4px 16px -4px rgba(139, 30, 63, 0.2);
 }
 
-/* Assistant Messages - Subtle accent */
+/* Assistant Messages - Clean white background for readability */
 [class*="assistant-message"],
 .assistant-message {
-    background: rgba(255, 255, 255, 0.9) !important;
+    background: rgba(255, 255, 255, 0.95) !important;
     border-left: 4px solid var(--kerberus-red) !important;
     border-top: none !important;
     border-right: none !important;
     border-bottom: none !important;
+    padding: 1.5rem !important;
 }
 
 /* ============================================
@@ -390,35 +391,188 @@ h6 {
     color: var(--kerberus-dark) !important;
 }
 
-/* Code blocks */
+/* ============================================
+   MARKDOWN CONTENT STYLING - Legal Analysis
+   ============================================ */
+
+/* Code blocks - JSON consistency indicator - COMPACT BADGE STYLE */
 code,
 pre {
-    background: rgba(26, 32, 44, 0.05) !important;
-    border-radius: 6px !important;
+    background: linear-gradient(135deg, rgba(44, 82, 130, 0.12) 0%, rgba(44, 82, 130, 0.06) 100%) !important;
+    color: var(--kerberus-blue) !important;
+    border-radius: 8px !important;
     font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+    padding: 0.5rem 0.75rem !important;
+    font-size: 0.8rem !important;
+    line-height: 1.5 !important;
+    border: 1px solid rgba(44, 82, 130, 0.15) !important;
+    box-shadow: none !important;
+    overflow-x: auto !important;
+    display: inline-block !important;
+    margin-bottom: 1rem !important;
 }
 
-/* Links */
+/* Inline code */
+:not(pre) > code {
+    background: rgba(44, 82, 130, 0.1) !important;
+    color: var(--kerberus-blue) !important;
+    padding: 0.15rem 0.4rem !important;
+    border-radius: 4px !important;
+    font-size: 0.85em !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* JSON syntax highlighting in code blocks */
+pre code {
+    background: transparent !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    display: inline !important;
+}
+
+/* Links - Fedlex and BGer references */
 a {
-    color: var(--kerberus-red) !important;
+    color: var(--kerberus-blue) !important;
     text-decoration: none !important;
-    transition: color 0.2s ease !important;
+    transition: all 0.2s ease !important;
+    font-weight: 500 !important;
+    border-bottom: 1px dotted var(--kerberus-blue-light) !important;
 }
 
 a:hover {
-    color: var(--kerberus-red-light) !important;
-    text-decoration: underline !important;
+    color: var(--kerberus-red) !important;
+    border-bottom-color: var(--kerberus-red) !important;
 }
 
-/* Blockquotes (for search result previews) */
+/* Blockquotes - Original legal text citations - STYLED LIKE SOURCES */
 blockquote {
-    border-left: 3px solid var(--kerberus-red) !important;
-    background: rgba(139, 30, 63, 0.03) !important;
-    padding: 1rem 1.5rem !important;
+    border-left: 4px solid var(--kerberus-blue) !important;
+    background: linear-gradient(135deg, rgba(44, 82, 130, 0.1) 0%, rgba(255, 255, 255, 0.8) 100%) !important;
+    padding: 1.25rem 1.5rem !important;
+    border-radius: 0 12px 12px 0 !important;
+    margin: 1.25rem 0 !important;
+    font-style: normal !important;
+    color: #1A202C !important;
+    font-size: 0.9rem !important;
+    line-height: 1.7 !important;
+    box-shadow:
+        0 4px 12px rgba(44, 82, 130, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Headers in legal analysis - CLEAR SECTIONS */
+.cl-message h1,
+.cl-message h2,
+[class*="message"] h1,
+[class*="message"] h2 {
+    color: var(--kerberus-red) !important;
+    font-weight: 700 !important;
+    font-size: 1.25rem !important;
+    margin-top: 1.75rem !important;
+    margin-bottom: 0.75rem !important;
+    padding-bottom: 0.5rem !important;
+    border-bottom: 3px solid var(--kerberus-red) !important;
+    background: linear-gradient(90deg, rgba(139, 30, 63, 0.08) 0%, transparent 100%) !important;
+    padding: 0.5rem 0.75rem !important;
+    border-radius: 4px 4px 0 0 !important;
+}
+
+.cl-message h3,
+[class*="message"] h3 {
+    color: var(--kerberus-dark) !important;
+    font-weight: 700 !important;
+    font-size: 1.1rem !important;
+    margin-top: 1.5rem !important;
+    margin-bottom: 0.5rem !important;
+    padding-left: 0.5rem !important;
+    border-left: 3px solid var(--kerberus-blue) !important;
+}
+
+/* Article citations - bold styling with highlight */
+.cl-message strong,
+[class*="message"] strong {
+    color: #1A202C !important;
+    font-weight: 700 !important;
+    background: rgba(139, 30, 63, 0.06) !important;
+    padding: 0.1rem 0.3rem !important;
+    border-radius: 3px !important;
+}
+
+/* Horizontal rules - section separators */
+.cl-message hr,
+[class*="message"] hr {
+    border: none !important;
+    height: 2px !important;
+    background: linear-gradient(90deg, var(--kerberus-red), var(--kerberus-blue), var(--kerberus-red)) !important;
+    margin: 2rem 0 !important;
+    opacity: 0.3 !important;
+}
+
+/* Lists - practical advice - BETTER VISIBILITY */
+.cl-message ul,
+.cl-message ol,
+[class*="message"] ul,
+[class*="message"] ol {
+    margin: 1rem 0 !important;
+    padding-left: 1.75rem !important;
+    background: rgba(255, 255, 255, 0.5) !important;
+    border-radius: 8px !important;
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+}
+
+.cl-message li,
+[class*="message"] li {
+    margin-bottom: 0.6rem !important;
+    line-height: 1.7 !important;
+    color: #1A202C !important;
+    font-size: 0.95rem !important;
+}
+
+.cl-message li::marker {
+    color: var(--kerberus-red) !important;
+    font-weight: bold !important;
+}
+
+/* Paragraphs - MAXIMUM READABILITY */
+.cl-message p,
+[class*="message"] p {
+    margin-bottom: 1rem !important;
+    line-height: 1.8 !important;
+    color: #1A202C !important;
+    font-size: 0.95rem !important;
+}
+
+/* Warning/disclaimer styling */
+.cl-message p:has(⚠️),
+[class*="message"] p:has(⚠️) {
+    background: rgba(234, 179, 8, 0.1) !important;
+    border-left: 4px solid #EAB308 !important;
+    padding: 0.75rem 1rem !important;
     border-radius: 0 8px 8px 0 !important;
     margin: 1rem 0 !important;
-    font-style: italic;
-    color: var(--kerberus-gray);
+}
+
+/* Link emoji styling */
+.cl-message a:has(🔗),
+[class*="message"] a:has(🔗) {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.25rem !important;
+    background: rgba(44, 82, 130, 0.08) !important;
+    padding: 0.25rem 0.5rem !important;
+    border-radius: 6px !important;
+    border-bottom: none !important;
+    font-size: 0.9rem !important;
+}
+
+/* Emphasis text */
+.cl-message em,
+[class*="message"] em {
+    color: #64748B !important;
+    font-style: italic !important;
 }
 
 /* ============================================

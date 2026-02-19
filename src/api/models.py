@@ -153,7 +153,7 @@ class ChatRequest(BaseModel):
     language: Optional[str] = Field("auto", description="Response language: de, fr, it, en, or auto-detect")
     search_scope: Optional[str] = Field("both", description="Search scope: both, laws, decisions")
     multilingual: Optional[bool] = Field(False, description="Enable cross-language search (searches all languages)")
-    max_laws: Optional[int] = Field(10, ge=1, le=15, description="Maximum laws to include in context")
+    max_laws: Optional[int] = Field(20, ge=1, le=25, description="Maximum laws to include in context")
     max_decisions: Optional[int] = Field(10, ge=1, le=20, description="Maximum court decisions to include")
     enable_web_search: Optional[bool] = Field(False, description="Enable web search for additional sources")
 

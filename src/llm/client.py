@@ -214,7 +214,7 @@ class InfomaniakClient:
     def chat(
         self,
         messages: List[Dict],
-        max_tokens: int = 8192,
+        max_tokens: int = 4096,
         temperature: float = 0.4,
         model: Optional[str] = None,
     ) -> LLMResponse:
@@ -273,7 +273,7 @@ class InfomaniakClient:
     def chat_stream(
         self,
         messages: List[Dict],
-        max_tokens: int = 8192,
+        max_tokens: int = 4096,
         temperature: float = 0.4,
         model: Optional[str] = None,
     ) -> Generator[str, None, LLMResponse]:
@@ -431,7 +431,7 @@ Die Rechtslage zeigt ein gemischtes Bild (🟡 MIXED).
     def chat_with_web_search(
         self,
         messages: List[Dict],
-        max_tokens: int = 8192,
+        max_tokens: int = 4096,
         temperature: float = 0.4,
         model: Optional[str] = None,
     ) -> LLMResponse:
@@ -463,7 +463,7 @@ Die Rechtslage zeigt ein gemischtes Bild (🟡 MIXED).
     def chat_stream_with_web_search(
         self,
         messages: List[Dict],
-        max_tokens: int = 8192,
+        max_tokens: int = 4096,
         temperature: float = 0.4,
         model: Optional[str] = None,
     ) -> Generator[str, None, LLMResponse]:

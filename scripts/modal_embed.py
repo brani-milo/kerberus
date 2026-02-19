@@ -2,21 +2,24 @@
 """
 Modal Serverless GPU Embedding for KERBERUS.
 
-Runs BGE-M3 embedding on Modal's A10G GPUs (~$0.50/hr).
-Processes 385k documents in ~2-4 hours for ~$2-3 total.
+Runs BGE-M3 embedding on Modal's A10G GPUs (~$0.50/hr per GPU).
+PARALLEL MODE: Spins up 8 GPUs simultaneously to process courts in parallel.
+  - ~4-5 hours total instead of ~38 hours sequential
+  - Cost: ~$20 (8 GPUs × ~$0.50/hr × ~5 hours)
 
 Setup:
     1. pip install modal
     2. modal setup  # Login with GitHub/Google
     3. modal run scripts/modal_embed.py --upload  # Upload parsed data
-    4. modal run scripts/modal_embed.py --embed   # Run embedding
+    4. modal run scripts/modal_embed.py --embed   # Run embedding (parallel by default)
     5. modal run scripts/modal_embed.py --download  # Download results
 
 Usage:
-    modal run scripts/modal_embed.py --upload     # Upload parsed JSONs to Modal
-    modal run scripts/modal_embed.py --embed      # Run GPU embedding
-    modal run scripts/modal_embed.py --embed --collection=codex  # Just Fedlex
-    modal run scripts/modal_embed.py --download   # Download embeddings
+    modal run scripts/modal_embed.py --upload                      # Upload parsed JSONs
+    modal run scripts/modal_embed.py --embed                       # Parallel (8 GPUs)
+    modal run scripts/modal_embed.py --embed --sequential          # Single GPU
+    modal run scripts/modal_embed.py --embed --collection=codex    # Just Fedlex
+    modal run scripts/modal_embed.py --download                    # Download embeddings
 """
 
 import modal
@@ -36,9 +39,11 @@ volume = modal.Volume.from_name("kerberus-data", create_if_missing=True)
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
-        "torch>=2.0",
-        "transformers>=4.36",
-        "FlagEmbedding>=1.2",
+        "torch>=2.6",  # Required for security (CVE-2025-32434)
+        "transformers>=4.44,<4.50",  # Pin to stable 4.x for FlagEmbedding compat
+        "FlagEmbedding==1.2.11",  # Specific stable version
+        "peft",  # Required by FlagEmbedding
+        "sentence-transformers",  # Required by FlagEmbedding
         "numpy",
         "tqdm",
         "orjson",  # Fast JSON
@@ -53,7 +58,7 @@ image = (
 @app.cls(
     image=image,
     gpu="A10G",  # 24GB VRAM, ~$0.50/hr
-    timeout=3600 * 6,  # 6 hour max
+    timeout=3600 * 24,  # 24 hour max (resume capability allows restart if needed)
     volumes={"/data": volume},
 )
 class BGEEmbedder:
@@ -110,6 +115,111 @@ class BGEEmbedder:
         return results
 
     @modal.method()
+    def ensure_extracted(self) -> bool:
+        """Ensure tar archives are extracted (called once before parallel processing)."""
+        import subprocess
+
+        extracted = False
+
+        # Extract main parsed.tar.gz (court decisions)
+        tar_path = Path("/data/parsed.tar.gz")
+        parsed_dir = Path("/data/parsed")
+
+        if tar_path.exists() and not parsed_dir.exists():
+            print(f"Extracting {tar_path}...")
+            subprocess.run(["tar", "-xzf", str(tar_path), "-C", "/data"], check=True)
+            print("Extraction complete!")
+            extracted = True
+
+        # Extract Fedlex tar (laws/ordinances) - separate file for 309k articles
+        # Volume mounted at /data, check multiple possible locations
+        fedlex_tar_paths = [
+            Path("/data/parsed_fedlex.tar.gz"),        # Volume root: /parsed_fedlex.tar.gz
+            Path("/data/data/parsed_fedlex.tar.gz"),  # If uploaded to /data/ in volume
+        ]
+        fedlex_dir = parsed_dir / "fedlex"
+
+        # Debug: list what exists
+        print(f"Looking for Fedlex tar... fedlex_dir exists: {fedlex_dir.exists()}")
+        if fedlex_dir.exists():
+            json_count = len(list(fedlex_dir.glob("*.json")))
+            print(f"  fedlex_dir has {json_count} JSON files")
+
+        for fedlex_tar in fedlex_tar_paths:
+            print(f"  Checking {fedlex_tar}: exists={fedlex_tar.exists()}")
+            if fedlex_tar.exists() and (not fedlex_dir.exists() or len(list(fedlex_dir.glob("*.json"))) < 100):
+                print(f"Extracting {fedlex_tar}...")
+                # List what tar contains first
+                result = subprocess.run(["tar", "-tzf", str(fedlex_tar)], capture_output=True, text=True)
+                print(f"  Tar contents (first 5): {result.stdout.split(chr(10))[:5]}")
+                # Extract to /data, creates /data/parsed/fedlex/
+                subprocess.run(["tar", "-xzf", str(fedlex_tar), "-C", "/data"], check=True)
+                print("Fedlex extraction complete!")
+                # List what's in /data/parsed now
+                result2 = subprocess.run(["ls", "-la", "/data/parsed/"], capture_output=True, text=True)
+                print(f"  /data/parsed/ contents: {result2.stdout[:500]}")
+                # Verify extraction
+                print(f"  fedlex_dir after extract: {fedlex_dir}, exists={fedlex_dir.exists()}")
+                if fedlex_dir.exists():
+                    json_count = len(list(fedlex_dir.glob("*.json")))
+                    print(f"  After extraction: {json_count} JSON files in {fedlex_dir}")
+                extracted = True
+                break
+
+        if extracted:
+            volume.commit()
+
+        return parsed_dir.exists()
+
+    @modal.method()
+    def process_court(
+        self,
+        court: str,
+        batch_size: int = 64,
+        file_batch_size: int = 1000
+    ) -> Dict:
+        """
+        Process a single court (for parallel processing).
+
+        Args:
+            court: Court identifier (e.g., 'CH_BGer', 'ticino', 'codex')
+        """
+        import orjson
+        from tqdm import tqdm
+
+        parsed_dir = Path("/data/parsed")
+
+        stats = {"court": court, "processed": 0, "embedded": 0, "errors": 0, "files_written": 0}
+
+        if court == "codex":
+            # Fedlex
+            input_dir = parsed_dir / "fedlex"
+            output_dir = Path("/data/embeddings/codex")
+            if input_dir.exists():
+                stats = self._process_fedlex(input_dir, output_dir, batch_size, file_batch_size)
+                stats["court"] = court
+        elif court == "ticino":
+            # Ticino cantonal court
+            input_dir = parsed_dir / "ticino"
+            output_dir = Path("/data/embeddings/library/ticino")
+            if input_dir.exists():
+                stats = self._process_decisions(input_dir, output_dir, batch_size, file_batch_size)
+                stats["court"] = court
+        else:
+            # Federal courts
+            input_dir = parsed_dir / "federal" / court
+            output_dir = Path(f"/data/embeddings/library/{court}")
+            if input_dir.exists():
+                stats = self._process_decisions(input_dir, output_dir, batch_size, file_batch_size)
+                stats["court"] = court
+
+        # Commit after each court
+        volume.commit()
+
+        print(f"\n✓ {court} complete: {stats}")
+        return stats
+
+    @modal.method()
     def process_collection(
         self,
         collection: str,
@@ -117,13 +227,26 @@ class BGEEmbedder:
         file_batch_size: int = 1000
     ) -> Dict:
         """
-        Process entire collection (codex or library).
+        Process entire collection (codex or library) - SEQUENTIAL version.
+        Use process_court() with .map() for parallel processing.
 
         Reads from /data/parsed/{collection}/
         Writes to /data/embeddings/{collection}/
         """
         import orjson
+        import tarfile
+        import subprocess
         from tqdm import tqdm
+
+        # Extract tar archive if it exists and parsed dir doesn't
+        tar_path = Path("/data/parsed.tar.gz")
+        parsed_dir = Path("/data/parsed")
+
+        if tar_path.exists() and not parsed_dir.exists():
+            print(f"Extracting {tar_path}...")
+            subprocess.run(["tar", "-xzf", str(tar_path), "-C", "/data"], check=True)
+            print("Extraction complete!")
+            volume.commit()
 
         # Determine input/output paths
         if collection == "codex":
@@ -178,6 +301,9 @@ class BGEEmbedder:
         from tqdm import tqdm
 
         stats = {"processed": 0, "embedded": 0, "errors": 0, "files_written": 0}
+
+        # Create output directory
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         # Collect all articles
         all_articles = []
@@ -240,20 +366,41 @@ class BGEEmbedder:
         batch_size: int,
         file_batch_size: int
     ) -> Dict:
-        """Process court decisions."""
+        """Process court decisions with resume capability."""
         import orjson
         from tqdm import tqdm
         import re
 
-        stats = {"processed": 0, "embedded": 0, "errors": 0, "files_written": 0}
+        stats = {"processed": 0, "embedded": 0, "errors": 0, "files_written": 0, "skipped": 0}
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Load checkpoint for fast resume
+        checkpoint_file = output_dir / "checkpoint.json"
+        start_file_idx = 0
+        next_file_num = 0
+
+        if checkpoint_file.exists():
+            try:
+                with open(checkpoint_file, 'rb') as f:
+                    checkpoint = orjson.loads(f.read())
+                start_file_idx = checkpoint.get("last_file_idx", 0) + 1
+                next_file_num = checkpoint.get("next_file_num", 0)
+                print(f"FAST RESUME: Skipping to file index {start_file_idx}, output file {next_file_num}")
+            except Exception as e:
+                print(f"Warning: Could not read checkpoint: {e}")
+
+        stats["files_written"] = next_file_num
+
         json_files = sorted(input_dir.glob("*.json"))
-        print(f"Found {len(json_files)} decision files")
+        total_files = len(json_files)
+        print(f"Found {total_files} decision files, starting from index {start_file_idx}")
+
+        # Skip to checkpoint position
+        json_files = json_files[start_file_idx:]
 
         output_batch = []
 
-        for json_file in tqdm(json_files, desc="Processing"):
+        for file_idx, json_file in enumerate(tqdm(json_files, desc="Processing", initial=start_file_idx, total=total_files), start=start_file_idx):
             try:
                 with open(json_file, 'rb') as f:
                     decision = orjson.loads(f.read())
@@ -283,6 +430,13 @@ class BGEEmbedder:
                     stats["files_written"] += 1
                     output_batch = []
 
+                    # Save checkpoint for fast resume
+                    with open(checkpoint_file, 'wb') as f:
+                        f.write(orjson.dumps({
+                            "last_file_idx": file_idx,
+                            "next_file_num": stats["files_written"]
+                        }))
+
             except Exception as e:
                 print(f"Error processing {json_file.name}: {e}")
                 stats["errors"] += 1
@@ -291,6 +445,18 @@ class BGEEmbedder:
         if output_batch:
             self._write_batch(output_dir, output_batch, stats["files_written"])
             stats["files_written"] += 1
+
+        # Final checkpoint
+        with open(checkpoint_file, 'wb') as f:
+            f.write(orjson.dumps({
+                "last_file_idx": total_files - 1,
+                "next_file_num": stats["files_written"],
+                "completed": True
+            }))
+
+        # Log summary
+        print(f"Completed: processed {stats['processed']} decisions, "
+              f"wrote {stats['files_written']} embedding files")
 
         return stats
 
@@ -420,6 +586,48 @@ class BGEEmbedder:
             "text_preview": text_preview
         }
 
+    def _load_processed_ids(self, output_dir: Path) -> tuple:
+        """Load already-processed decision IDs from existing embedding files.
+
+        Returns:
+            tuple: (set of processed decision IDs, next file number to use)
+        """
+        import orjson
+
+        processed_ids = set()
+        max_file_num = -1
+
+        if not output_dir.exists():
+            return processed_ids, 0
+
+        embedding_files = sorted(output_dir.glob("embeddings_*.json"))
+
+        for emb_file in embedding_files:
+            # Extract file number
+            try:
+                file_num = int(emb_file.stem.split("_")[1])
+                max_file_num = max(max_file_num, file_num)
+            except (IndexError, ValueError):
+                continue
+
+            # Load and extract decision IDs (without chunk suffix)
+            try:
+                with open(emb_file, 'rb') as f:
+                    chunks = orjson.loads(f.read())
+                for chunk in chunks:
+                    chunk_id = chunk.get("id", "")
+                    # Extract decision ID (remove _chunk_N suffix)
+                    if "_chunk_" in chunk_id:
+                        decision_id = chunk_id.rsplit("_chunk_", 1)[0]
+                    else:
+                        decision_id = chunk_id
+                    processed_ids.add(decision_id)
+            except Exception as e:
+                print(f"Warning: Could not read {emb_file}: {e}")
+
+        next_file_num = max_file_num + 1 if max_file_num >= 0 else 0
+        return processed_ids, next_file_num
+
     def _write_batch(self, output_dir: Path, batch: List[Dict], batch_num: int):
         """Write embedding batch to file."""
         import orjson
@@ -438,7 +646,9 @@ def main(
     embed: bool = False,
     download: bool = False,
     collection: str = "all",
-    batch_size: int = 64
+    batch_size: int = 64,
+    parallel: bool = True,
+    sequential: bool = False
 ):
     """
     Main entrypoint for Modal CLI.
@@ -448,12 +658,15 @@ def main(
         embed: Run GPU embedding
         download: Download embeddings from Modal
         collection: 'codex', 'library', or 'all'
+        parallel: Run with multiple GPUs in parallel (default: True)
+        sequential: Force sequential processing (single GPU)
     """
     if upload:
         upload_data()
 
     if embed:
-        run_embedding(collection, batch_size)
+        use_parallel = parallel and not sequential
+        run_embedding(collection, batch_size, parallel=use_parallel)
 
     if download:
         download_embeddings(collection)
@@ -461,7 +674,8 @@ def main(
     if not (upload or embed or download):
         print("Usage:")
         print("  modal run scripts/modal_embed.py --upload")
-        print("  modal run scripts/modal_embed.py --embed")
+        print("  modal run scripts/modal_embed.py --embed                    # Parallel (default)")
+        print("  modal run scripts/modal_embed.py --embed --sequential       # Single GPU")
         print("  modal run scripts/modal_embed.py --embed --collection=codex")
         print("  modal run scripts/modal_embed.py --download")
 
@@ -490,17 +704,107 @@ def upload_data():
     print("Upload complete!")
 
 
-def run_embedding(collection: str, batch_size: int):
-    """Run GPU embedding on Modal."""
+def run_embedding(collection: str, batch_size: int, parallel: bool = True):
+    """Run GPU embedding on Modal.
+
+    Args:
+        collection: 'codex', 'library', or 'all'
+        batch_size: Embedding batch size
+        parallel: If True, process courts in parallel (multiple GPUs)
+    """
     embedder = BGEEmbedder()
 
+    # First ensure data is extracted
+    print("Ensuring data is extracted...")
+    embedder.ensure_extracted.remote()
+
+    if parallel:
+        run_embedding_parallel(embedder, collection, batch_size)
+    else:
+        run_embedding_sequential(embedder, collection, batch_size)
+
+
+def run_embedding_parallel(embedder, collection: str, batch_size: int):
+    """Run embedding with multiple GPUs in parallel."""
+
+    # Determine which courts to process
+    courts_to_process = []
+
+    # Support comma-separated court names (e.g., "CH_BGer,ticino")
+    valid_courts = ["CH_BGer", "CH_BVGer", "ticino", "CH_BGE", "CH_BStGer", "CH_EDOEB", "CH_BPatG", "codex"]
+
+    if "," in collection:
+        # Comma-separated list of specific courts
+        for court in collection.split(","):
+            court = court.strip()
+            if court in valid_courts:
+                courts_to_process.append(court)
+            else:
+                print(f"Warning: Unknown court '{court}', skipping")
+    elif collection in ["all", "codex"]:
+        courts_to_process.append("codex")
+        if collection == "all":
+            courts_to_process.extend([
+                "CH_BGer", "CH_BVGer", "ticino", "CH_BGE", "CH_BStGer", "CH_EDOEB", "CH_BPatG"
+            ])
+    elif collection == "library":
+        # Federal courts + Ticino
+        courts_to_process.extend([
+            "CH_BGer",      # ~182k files - largest
+            "CH_BVGer",     # ~91k files
+            "ticino",       # ~57k files
+            "CH_BGE",       # smaller
+            "CH_BStGer",    # smaller
+            "CH_EDOEB",     # smaller
+            "CH_BPatG",     # smaller
+        ])
+    elif collection in valid_courts:
+        # Single court specified
+        courts_to_process.append(collection)
+
+    print(f"\n{'='*60}")
+    print(f"PARALLEL EMBEDDING - {len(courts_to_process)} workers")
+    print(f"Courts: {', '.join(courts_to_process)}")
+    print(f"{'='*60}\n")
+
+    # Process all courts in parallel using .map()
+    # This spawns one GPU container per court
+    results = list(embedder.process_court.map(
+        courts_to_process,
+        kwargs={"batch_size": batch_size}
+    ))
+
+    # Aggregate stats
+    total_stats = {"processed": 0, "embedded": 0, "errors": 0, "files_written": 0, "skipped": 0}
+
+    print(f"\n{'='*60}")
+    print("RESULTS BY COURT")
+    print(f"{'='*60}")
+
+    for stats in results:
+        court = stats.get("court", "unknown")
+        print(f"\n{court}:")
+        for k, v in stats.items():
+            if k != "court":
+                print(f"  {k}: {v}")
+                total_stats[k] = total_stats.get(k, 0) + v
+
+    print(f"\n{'='*60}")
+    print("TOTAL STATS")
+    print(f"{'='*60}")
+    for k, v in total_stats.items():
+        print(f"  {k}: {v}")
+
+
+def run_embedding_sequential(embedder, collection: str, batch_size: int):
+    """Run embedding sequentially (single GPU, original behavior)."""
     collections_to_process = []
     if collection == "all":
         collections_to_process = ["codex", "library"]
     else:
         collections_to_process = [collection]
 
-    total_stats = {"processed": 0, "embedded": 0, "errors": 0, "files_written": 0}
+    total_stats = {"processed": 0, "embedded": 0, "errors": 0, "files_written": 0, "skipped": 0}
 
     for coll in collections_to_process:
         print(f"\n{'='*60}")
@@ -512,7 +816,7 @@ def run_embedding(collection: str, batch_size: int):
         print(f"\n{coll} stats:")
         for k, v in stats.items():
             print(f"  {k}: {v}")
-            total_stats[k] += v
+            total_stats[k] = total_stats.get(k, 0) + v
 
     print(f"\n{'='*60}")
     print("TOTAL STATS")
