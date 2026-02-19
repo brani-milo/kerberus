@@ -142,30 +142,35 @@ class ContextAssembler:
         Returns:
             Tuple of (deduplicated results, dict mapping decision_id to full text)
         """
-        # Group chunks by decision ID
+        # Group chunks by normalized decision ID (for deduplication)
+        # But keep track of original IDs (for Qdrant queries)
         decision_chunks = defaultdict(list)
         decision_metadata = {}
+        original_ids = {}  # Maps normalized_id -> original_id (for Qdrant lookup)
 
         for result in results:
             payload = result.get("payload", {})
-            decision_id = payload.get("decision_id", "") or payload.get("_original_id", "")
+            original_id = payload.get("decision_id", "") or payload.get("_original_id", "")
 
             # Normalize decision ID for consistent deduplication
-            base_id = _normalize_decision_id(str(decision_id))
+            normalized_id = _normalize_decision_id(str(original_id))
 
-            if base_id and base_id != "UNKNOWN":
-                decision_chunks[base_id].append(result)
-                if base_id not in decision_metadata:
-                    decision_metadata[base_id] = payload
+            if normalized_id and normalized_id != "UNKNOWN":
+                decision_chunks[normalized_id].append(result)
+                if normalized_id not in decision_metadata:
+                    decision_metadata[normalized_id] = payload
+                    # Store the original ID for Qdrant lookup
+                    original_ids[normalized_id] = original_id
 
         # Fetch all chunks for each unique decision
         full_texts = {}
         unique_results = []
 
-        for decision_id, chunks in list(decision_chunks.items())[:10]:  # Limit to top 10 unique decisions
+        for normalized_id, chunks in list(decision_chunks.items())[:10]:  # Limit to top 10 unique decisions
             try:
-                # Fetch all chunks for this decision from Qdrant
-                all_chunks = self._fetch_all_chunks(decision_id)
+                # Use ORIGINAL ID to fetch from Qdrant (case-sensitive match)
+                original_id = original_ids.get(normalized_id, normalized_id)
+                all_chunks = self._fetch_all_chunks(original_id)
 
                 if all_chunks:
                     # Sort by chunk index and concatenate
@@ -185,19 +190,20 @@ class ContextAssembler:
                         else:
                             full_text_parts.append(text)
 
-                    full_texts[decision_id] = "\n\n".join(full_text_parts)
+                    # Store with normalized ID (for consistent lookup in pipeline.py)
+                    full_texts[normalized_id] = "\n\n".join(full_text_parts)
 
                     # Use first chunk as representative result
                     unique_results.append(chunks[0])
 
                     logger.debug(
-                        f"Fetched {len(all_chunks)} chunks for {decision_id}, "
-                        f"total {len(full_texts[decision_id])} chars"
+                        f"Fetched {len(all_chunks)} chunks for {original_id} (normalized: {normalized_id}), "
+                        f"total {len(full_texts[normalized_id])} chars"
                     )
                 else:
                     # Fallback: use what we have
                     unique_results.append(chunks[0])
-                    full_texts[decision_id] = chunks[0].get("payload", {}).get("text_preview", "")
+                    full_texts[normalized_id] = chunks[0].get("payload", {}).get("text_preview", "")
 
             except Exception as e:
                 logger.error(f"Error fetching chunks for {decision_id}: {e}")

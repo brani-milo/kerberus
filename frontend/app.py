@@ -429,10 +429,13 @@ def format_sources_collapsible(codex_results: list, library_results: list, codex
         rank = 1
         for res in library_results:
             payload = res.get('payload', {})
-            decision_id = payload.get('decision_id', '')
-            base_id = decision_id.split('_chunk_')[0] if '_chunk_' in str(decision_id) else decision_id
-            if base_id not in seen and rank <= 15:
-                seen.add(base_id)
+            decision_id = payload.get('decision_id', '') or payload.get('_original_id', '')
+            # Normalize for deduplication (handles case like BGE 102 IA vs Ia)
+            normalized_id = decision_id.upper().replace(' ', '-').replace('--', '-')
+            if '_chunk_' in normalized_id:
+                normalized_id = normalized_id.split('_CHUNK_')[0]
+            if normalized_id not in seen and rank <= 10:  # Limit to 10 unique decisions
+                seen.add(normalized_id)
                 parts.append(format_decision_result(res, rank))
                 rank += 1
 
