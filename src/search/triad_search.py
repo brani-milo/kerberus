@@ -18,6 +18,45 @@ from src.database.vector_db import QdrantManager
 
 logger = logging.getLogger(__name__)
 
+# Abrogated laws that should be filtered out from Codex results
+# These laws have been replaced but old versions are still in the database
+# Maps SR number -> list of abrogated abbreviations
+ABROGATED_LAWS = {
+    "142.20": ["ANAG", "LSEE", "LDDS"],  # Replaced by AIG/LEI/LStrI in 2008
+    "142.201": ["ANAV", "RSEE", "ODDS"],  # Replaced by VZAE/OASA in 2008
+}
+
+
+def filter_abrogated_laws(results: List[Dict]) -> List[Dict]:
+    """
+    Remove results from abrogated laws.
+
+    These are laws that have been replaced but old versions
+    are still in the database with incorrect abbreviations.
+    """
+    filtered = []
+    removed_count = 0
+
+    for result in results:
+        payload = result.get('payload', {})
+        sr_number = payload.get('sr_number', '')
+        abbreviation = payload.get('abbreviation', '')
+
+        # Check if this is an abrogated law
+        if sr_number in ABROGATED_LAWS:
+            abrogated_abbrevs = ABROGATED_LAWS[sr_number]
+            if abbreviation in abrogated_abbrevs:
+                removed_count += 1
+                logger.debug(f"Filtered abrogated law: {abbreviation} (SR {sr_number})")
+                continue
+
+        filtered.append(result)
+
+    if removed_count > 0:
+        logger.info(f"Filtered {removed_count} results from abrogated laws")
+
+    return filtered
+
 
 class TriadSearch:
     """
@@ -185,6 +224,11 @@ class TriadSearch:
                     top_k=top_k
                 )
                 logger.info(f"{collection_name}: {len(reranked['results'])} unique documents after deduplication")
+
+                # Step 4.5: Filter out abrogated laws from Codex
+                # These are old law versions that should not be cited
+                if collection_name == 'codex':
+                    reranked['results'] = filter_abrogated_laws(reranked['results'])
 
                 # Step 5: Fetch full document content for Qwen
                 # Chunks are for retrieval; Qwen needs full documents for accurate analysis
