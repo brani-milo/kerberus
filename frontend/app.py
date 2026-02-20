@@ -383,8 +383,12 @@ def format_decision_result(result: dict, rank: int) -> str:
     else:
         citation = str(case_id)
 
+    # Remove chunk suffixes from citation
     if '_chunk_' in citation:
         citation = citation.split('_chunk_')[0]
+    elif ' chunk ' in citation.lower():
+        import re
+        citation = re.split(r'\s+chunk\s+\d+', citation, flags=re.IGNORECASE)[0].strip()
 
     court = payload.get('court', '')
     court_names = {
@@ -425,23 +429,46 @@ def format_sources_collapsible(codex_results: list, library_results: list, codex
 
     if library_results:
         parts.append(f"\n**{library_emoji} Case Law (Library) - {library_conf}**\n")
-        seen = set()
+        seen_ids = set()
+        seen_texts = set()  # Also dedupe by text content
         rank = 1
         for res in library_results:
+            if rank > 10:  # Hard limit
+                break
+
             payload = res.get('payload', {})
             decision_id = payload.get('decision_id', '') or payload.get('_original_id', '')
-            # Normalize for deduplication (handles case and chunk suffixes)
+
+            # Skip entries with clearly invalid IDs (single words that aren't case numbers)
+            if decision_id and len(decision_id) < 10 and not any(x in decision_id.upper() for x in ['BGE', 'BGER', 'CH_']):
+                continue
+
+            # Normalize for deduplication
+            import re
             normalized_id = decision_id
+
             # Remove chunk suffix (handle both "_chunk_" and " chunk " formats)
             if '_chunk_' in normalized_id:
                 normalized_id = normalized_id.split('_chunk_')[0]
-            elif ' chunk ' in normalized_id.lower():
-                import re
+            if ' chunk ' in normalized_id.lower():
                 normalized_id = re.split(r'\s+chunk\s+\d+', normalized_id, flags=re.IGNORECASE)[0]
-            # Normalize case and separators
-            normalized_id = normalized_id.upper().replace(' ', '-').replace('--', '-')
-            if normalized_id not in seen and rank <= 10:  # Limit to 10 unique decisions
-                seen.add(normalized_id)
+
+            # Extract BGE number if present for better deduplication
+            bge_match = re.search(r'BGE[-\s]*(\d+)[-\s]*([IVX]+)[-\s]*(\d+)', normalized_id, re.IGNORECASE)
+            if bge_match:
+                normalized_id = f"BGE-{bge_match.group(1)}-{bge_match.group(2).upper()}-{bge_match.group(3)}"
+            else:
+                # General normalization
+                normalized_id = normalized_id.upper().strip()
+                normalized_id = re.sub(r'[\s_-]+', '-', normalized_id)
+
+            # Also check text similarity (first 100 chars) to catch true duplicates
+            text_preview = payload.get('text_preview', '')[:100]
+
+            if normalized_id not in seen_ids and text_preview not in seen_texts:
+                seen_ids.add(normalized_id)
+                if text_preview:
+                    seen_texts.add(text_preview)
                 parts.append(format_decision_result(res, rank))
                 rank += 1
 
