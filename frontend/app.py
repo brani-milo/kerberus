@@ -411,20 +411,35 @@ def format_decision_result(result: dict, rank: int) -> str:
     }
     court_display = court_names.get(court, court or '')
 
-    # Priority: regeste (best summary) > text_preview (chunk) > reasoning
+    # Priority: proper regeste > facts summary > reasoning first paragraph > text_preview
     # full_document is added by enrich_results_with_full_content
     text = ''
     full_doc = result.get('full_document', {})
-    if full_doc:
-        full_content = full_doc.get('content', {})
-        if isinstance(full_content, dict):
-            text = full_content.get('regeste', '')
+    full_content = full_doc.get('content', {}) if full_doc else {}
+
+    if isinstance(full_content, dict):
+        regeste = full_content.get('regeste', '')
+        # Check if regeste is a proper summary (not just header metadata)
+        # Proper regestes don't start with "Bundesgericht" or court metadata
+        if regeste and not regeste.startswith(('Bundesgericht', 'Tribunal fédéral', 'Tribunale federale')):
+            text = regeste
+        elif full_content.get('facts'):
+            # Use first part of facts as summary
+            text = full_content.get('facts', '')[:500]
+        elif full_content.get('reasoning'):
+            # Use first paragraph of reasoning
+            reasoning = full_content.get('reasoning', '')
+            # Find first paragraph (after any header)
+            import re
+            # Skip headers like "Erwägungen" or "Considérant en fait"
+            clean_reasoning = re.sub(r'^(Erwägungen|Considérant|Diritto|Considerando)[^\n]*\n?', '', reasoning)
+            text = clean_reasoning[:500]
 
     # Fallback to payload content
     if not text:
         content = payload.get('content', {})
         if isinstance(content, dict):
-            text = content.get('regeste') or content.get('reasoning', '')
+            text = content.get('regeste') or content.get('facts') or content.get('reasoning', '')
 
     # Last resort: text_preview (the chunk that was retrieved)
     if not text:
