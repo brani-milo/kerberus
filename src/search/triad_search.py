@@ -18,42 +18,72 @@ from src.database.vector_db import QdrantManager
 
 logger = logging.getLogger(__name__)
 
-# Abrogated laws that should be filtered out from Codex results
-# These laws have been replaced but old versions are still in the database
-# Maps SR number -> list of abrogated abbreviations
-ABROGATED_LAWS = {
-    "142.20": ["ANAG", "LSEE", "LDDS"],  # Replaced by AIG/LEI/LStrI in 2008
-    "142.201": ["ANAV", "RSEE", "ODDS"],  # Replaced by VZAE/OASA in 2008
-}
+# Active laws whitelist - loaded from discovered_laws.json
+# Only laws in this set are considered current/valid
+_ACTIVE_LAWS_CACHE = None
 
 
-def filter_abrogated_laws(results: List[Dict]) -> List[Dict]:
+def _load_active_laws() -> set:
+    """Load the set of active SR numbers from discovered_laws.json."""
+    global _ACTIVE_LAWS_CACHE
+
+    if _ACTIVE_LAWS_CACHE is not None:
+        return _ACTIVE_LAWS_CACHE
+
+    import json
+    from pathlib import Path
+
+    # Try multiple possible paths
+    possible_paths = [
+        Path("/app/data/fedlex/metadata/discovered_laws.json"),  # Docker
+        Path(__file__).parent.parent.parent / "data" / "fedlex" / "metadata" / "discovered_laws.json",  # Local
+    ]
+
+    for path in possible_paths:
+        if path.exists():
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    laws = data.get('laws', {})
+                    _ACTIVE_LAWS_CACHE = set(laws.keys())
+                    logger.info(f"Loaded {len(_ACTIVE_LAWS_CACHE)} active laws from {path}")
+                    return _ACTIVE_LAWS_CACHE
+            except Exception as e:
+                logger.error(f"Failed to load active laws from {path}: {e}")
+
+    logger.warning("Could not load active laws whitelist - no filtering will be applied")
+    _ACTIVE_LAWS_CACHE = set()
+    return _ACTIVE_LAWS_CACHE
+
+
+def filter_to_active_laws(results: List[Dict]) -> List[Dict]:
     """
-    Remove results from abrogated laws.
+    Filter results to only include currently active laws.
 
-    These are laws that have been replaced but old versions
-    are still in the database with incorrect abbreviations.
+    Uses discovered_laws.json as the authoritative source for
+    which SR numbers are currently in force.
     """
+    active_laws = _load_active_laws()
+
+    if not active_laws:
+        # Whitelist not available, return all results
+        return results
+
     filtered = []
     removed_count = 0
 
     for result in results:
         payload = result.get('payload', {})
         sr_number = payload.get('sr_number', '')
-        abbreviation = payload.get('abbreviation', '')
 
-        # Check if this is an abrogated law
-        if sr_number in ABROGATED_LAWS:
-            abrogated_abbrevs = ABROGATED_LAWS[sr_number]
-            if abbreviation in abrogated_abbrevs:
-                removed_count += 1
-                logger.debug(f"Filtered abrogated law: {abbreviation} (SR {sr_number})")
-                continue
-
-        filtered.append(result)
+        if sr_number in active_laws:
+            filtered.append(result)
+        else:
+            removed_count += 1
+            logger.debug(f"Filtered inactive law: SR {sr_number}")
 
     if removed_count > 0:
-        logger.info(f"Filtered {removed_count} results from abrogated laws")
+        logger.info(f"Filtered {removed_count} results from inactive/abrogated laws")
 
     return filtered
 
@@ -225,10 +255,10 @@ class TriadSearch:
                 )
                 logger.info(f"{collection_name}: {len(reranked['results'])} unique documents after deduplication")
 
-                # Step 4.5: Filter out abrogated laws from Codex
-                # These are old law versions that should not be cited
+                # Step 4.5: Filter to only active laws from Codex
+                # Uses discovered_laws.json whitelist to ensure only current laws are cited
                 if collection_name == 'codex':
-                    reranked['results'] = filter_abrogated_laws(reranked['results'])
+                    reranked['results'] = filter_to_active_laws(reranked['results'])
 
                 # Step 5: Fetch full document content for Qwen
                 # Chunks are for retrieval; Qwen needs full documents for accurate analysis
