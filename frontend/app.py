@@ -366,7 +366,21 @@ def format_decision_result(result: dict, rank: int) -> str:
     decision_id = payload.get('decision_id', '')
     case_id = payload.get('_original_id', payload.get('id', 'Unknown'))
     final_score = result.get('final_score', result.get('score', 0))
-    year = result.get('year', payload.get('year', ''))
+
+    # Extract year from multiple sources
+    year = ''
+    full_doc = result.get('full_document', {})
+    if full_doc and full_doc.get('date'):
+        # Date format: "2009-02-20" -> extract year
+        year = str(full_doc.get('date', ''))[:4]
+    if not year or year == '2000':  # 2000 is often a placeholder
+        year = result.get('year', payload.get('year', ''))
+    if not year or year == '2000':
+        # Try to extract from decision_id like "BGer 001 1C-346-2008 2009-02-20"
+        import re
+        date_match = re.search(r'(\d{4})-\d{2}-\d{2}', str(decision_id) or str(case_id))
+        if date_match:
+            year = date_match.group(1)
 
     # Clean up case ID for display
     if decision_id and 'BGE-' in decision_id:
@@ -397,11 +411,24 @@ def format_decision_result(result: dict, rank: int) -> str:
     }
     court_display = court_names.get(court, court or '')
 
-    text = payload.get('text_preview', '')
+    # Priority: regeste (best summary) > text_preview (chunk) > reasoning
+    # full_document is added by enrich_results_with_full_content
+    text = ''
+    full_doc = result.get('full_document', {})
+    if full_doc:
+        full_content = full_doc.get('content', {})
+        if isinstance(full_content, dict):
+            text = full_content.get('regeste', '')
+
+    # Fallback to payload content
     if not text:
         content = payload.get('content', {})
         if isinstance(content, dict):
             text = content.get('regeste') or content.get('reasoning', '')
+
+    # Last resort: text_preview (the chunk that was retrieved)
+    if not text:
+        text = payload.get('text_preview', '')
 
     preview = str(text)[:250] + "..." if len(str(text)) > 250 else str(text)
     meta = f"{year}" if year else ""
