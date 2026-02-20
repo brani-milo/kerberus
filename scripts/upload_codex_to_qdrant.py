@@ -20,6 +20,8 @@ Environment variables:
 import json
 import os
 import sys
+import uuid
+import hashlib
 from pathlib import Path
 from typing import List, Dict
 from qdrant_client import QdrantClient
@@ -27,6 +29,13 @@ from qdrant_client.models import (
     Distance, VectorParams, PointStruct,
     SparseVectorParams, SparseIndexParams, SparseVector
 )
+
+
+def string_to_uuid(s: str) -> str:
+    """Convert a string ID to a deterministic UUID."""
+    # Create a deterministic UUID from the string using MD5 hash
+    hash_bytes = hashlib.md5(s.encode('utf-8')).digest()
+    return str(uuid.UUID(bytes=hash_bytes))
 
 # Paths
 EMBEDDINGS_DIR = Path(__file__).parent.parent / "data" / "embeddings" / "codex_clean"
@@ -125,10 +134,18 @@ def main():
                         values=sparse_values
                     )
 
+                # Convert string ID to UUID (Qdrant requires UUID or int)
+                original_id = entry.get('id', str(total_uploaded))
+                point_id = string_to_uuid(original_id)
+
+                # Store original ID in payload for reference
+                payload = entry.get('payload', {})
+                payload['original_id'] = original_id
+
                 point = PointStruct(
-                    id=entry.get('id', str(total_uploaded)),
+                    id=point_id,
                     vector=vectors,
-                    payload=entry.get('payload', {})
+                    payload=payload
                 )
                 points.append(point)
             except Exception as e:
