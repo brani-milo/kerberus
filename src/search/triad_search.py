@@ -177,45 +177,48 @@ def correct_abbreviations(results: List[Dict], language: str = 'de') -> List[Dic
     return results
 
 
-def boost_ordinances(results: List[Dict], boost_factor: float = 1.15) -> List[Dict]:
+def split_laws_and_ordinances(results: List[Dict], top_k: int = 10) -> List[Dict]:
     """
-    Boost ordinances (Verordnungen) in search results.
+    Split results into laws and ordinances, returning top of each.
 
-    Ordinances contain implementation details that lawyers need.
-    Main laws define principles, but ordinances specify procedures.
-    E.g., OASA/VZAE specifies how LStrI/AIG is applied.
+    Laws define principles, ordinances specify implementation.
+    Qwen needs both to give complete legal advice.
+    E.g., LStrI Art. 42 (principle) + OASA Art. 15a (procedure).
 
     Args:
-        results: Search results with scores
-        boost_factor: Score multiplier for ordinances (default 1.15 = 15% boost)
+        results: Search results
+        top_k: How many of each type to return (default 10 each = 20 total)
 
     Returns:
-        Results with boosted ordinance scores, re-sorted
+        Combined list: top_k laws + top_k ordinances
     """
     # Keywords indicating an ordinance (in DE/FR/IT titles)
     ORDINANCE_KEYWORDS = ['Verordnung', 'Ordonnance', 'Ordinanza', 'Reglement', 'Règlement', 'Regolamento']
 
-    boosted_count = 0
+    laws = []
+    ordinances = []
 
     for result in results:
         payload = result.get('payload', {})
         sr_name = payload.get('sr_name', '')
 
-        # Check if it's an ordinance
         is_ordinance = any(kw in sr_name for kw in ORDINANCE_KEYWORDS)
 
-        if is_ordinance and 'score' in result:
-            result['score'] = result['score'] * boost_factor
-            result['ordinance_boosted'] = True
-            boosted_count += 1
+        if is_ordinance:
+            result['is_ordinance'] = True
+            ordinances.append(result)
+        else:
+            result['is_ordinance'] = False
+            laws.append(result)
 
-    # Re-sort by score after boosting
-    results = sorted(results, key=lambda x: x.get('score', 0), reverse=True)
+    # Take top_k of each, already sorted by score from reranking
+    top_laws = laws[:top_k]
+    top_ordinances = ordinances[:top_k]
 
-    if boosted_count > 0:
-        logger.info(f"Boosted {boosted_count} ordinances by {int((boost_factor-1)*100)}%")
+    logger.info(f"Codex split: {len(top_laws)} laws + {len(top_ordinances)} ordinances")
 
-    return results
+    # Return laws first, then ordinances
+    return top_laws + top_ordinances
 
 
 class TriadSearch:
@@ -377,11 +380,13 @@ class TriadSearch:
             )
 
             # Step 4: Deduplicate - keep only best chunk per unique document
-            # This ensures we feed Qwen with 10 unique cases/laws, not 10 chunks from 3 docs
+            # This ensures we feed Qwen with unique cases/laws, not chunks from same docs
+            # For Codex: need 2x top_k to allow 10 laws + 10 ordinances after split
             if reranked.get('results'):
+                dedupe_limit = top_k * 2 if collection_name == 'codex' else top_k
                 reranked['results'] = deduplicate_by_document(
                     reranked['results'],
-                    top_k=top_k
+                    top_k=dedupe_limit
                 )
                 logger.info(f"{collection_name}: {len(reranked['results'])} unique documents after deduplication")
 
@@ -392,9 +397,10 @@ class TriadSearch:
                     # Step 4.6: Correct outdated abbreviations using authoritative Fedlex data
                     # Qdrant may have old abbreviations (e.g., ANAG instead of AIG for SR 142.20)
                     reranked['results'] = correct_abbreviations(reranked['results'])
-                    # Step 4.7: Boost ordinances (Verordnungen) for better practical guidance
-                    # Ordinances contain implementation details lawyers need (e.g., OASA vs LStrI)
-                    reranked['results'] = boost_ordinances(reranked['results'])
+                    # Step 4.7: Split into laws + ordinances for balanced coverage
+                    # Laws = principles (LStrI), Ordinances = implementation (OASA)
+                    # Qwen gets both and decides what's relevant
+                    reranked['results'] = split_laws_and_ordinances(reranked['results'], top_k=top_k)
 
                 # Step 5: Fetch full document content for Qwen
                 # Chunks are for retrieval; Qwen needs full documents for accurate analysis
