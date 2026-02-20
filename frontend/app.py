@@ -439,12 +439,19 @@ def format_sources_collapsible(codex_results: list, library_results: list, codex
             payload = res.get('payload', {})
             decision_id = payload.get('decision_id', '') or payload.get('_original_id', '')
 
-            # Skip entries with clearly invalid IDs (single words that aren't case numbers)
-            if decision_id and len(decision_id) < 10 and not any(x in decision_id.upper() for x in ['BGE', 'BGER', 'CH_']):
+            import re
+
+            # Skip entries with invalid IDs (single words, no numbers, not case identifiers)
+            if not decision_id or decision_id == '-':
+                continue
+            # Must contain a number to be a valid case ID (e.g., BGE 102, 5A-190-2013)
+            if not re.search(r'\d', decision_id):
+                continue
+            # Skip single words that don't look like case numbers
+            if len(decision_id) < 5 or (len(decision_id) < 15 and not any(x in decision_id.upper() for x in ['BGE', 'BGER', 'CH_', '-', '/'])):
                 continue
 
             # Normalize for deduplication
-            import re
             normalized_id = decision_id
 
             # Remove chunk suffix (handle both "_chunk_" and " chunk " formats)
@@ -462,13 +469,15 @@ def format_sources_collapsible(codex_results: list, library_results: list, codex
                 normalized_id = normalized_id.upper().strip()
                 normalized_id = re.sub(r'[\s_-]+', '-', normalized_id)
 
-            # Also check text similarity (first 100 chars) to catch true duplicates
-            text_preview = payload.get('text_preview', '')[:100]
+            # Also check text similarity to catch true duplicates
+            # Use first 150 chars, normalized (no whitespace variations)
+            text_preview = payload.get('text_preview', '') or ''
+            text_key = re.sub(r'\s+', ' ', text_preview[:150]).strip()
 
-            if normalized_id not in seen_ids and text_preview not in seen_texts:
+            if normalized_id not in seen_ids and text_key not in seen_texts:
                 seen_ids.add(normalized_id)
-                if text_preview:
-                    seen_texts.add(text_preview)
+                if text_key:
+                    seen_texts.add(text_key)
                 parts.append(format_decision_result(res, rank))
                 rank += 1
 
