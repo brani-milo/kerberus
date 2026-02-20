@@ -177,6 +177,47 @@ def correct_abbreviations(results: List[Dict], language: str = 'de') -> List[Dic
     return results
 
 
+def boost_ordinances(results: List[Dict], boost_factor: float = 1.15) -> List[Dict]:
+    """
+    Boost ordinances (Verordnungen) in search results.
+
+    Ordinances contain implementation details that lawyers need.
+    Main laws define principles, but ordinances specify procedures.
+    E.g., OASA/VZAE specifies how LStrI/AIG is applied.
+
+    Args:
+        results: Search results with scores
+        boost_factor: Score multiplier for ordinances (default 1.15 = 15% boost)
+
+    Returns:
+        Results with boosted ordinance scores, re-sorted
+    """
+    # Keywords indicating an ordinance (in DE/FR/IT titles)
+    ORDINANCE_KEYWORDS = ['Verordnung', 'Ordonnance', 'Ordinanza', 'Reglement', 'Règlement', 'Regolamento']
+
+    boosted_count = 0
+
+    for result in results:
+        payload = result.get('payload', {})
+        sr_name = payload.get('sr_name', '')
+
+        # Check if it's an ordinance
+        is_ordinance = any(kw in sr_name for kw in ORDINANCE_KEYWORDS)
+
+        if is_ordinance and 'score' in result:
+            result['score'] = result['score'] * boost_factor
+            result['ordinance_boosted'] = True
+            boosted_count += 1
+
+    # Re-sort by score after boosting
+    results = sorted(results, key=lambda x: x.get('score', 0), reverse=True)
+
+    if boosted_count > 0:
+        logger.info(f"Boosted {boosted_count} ordinances by {int((boost_factor-1)*100)}%")
+
+    return results
+
+
 class TriadSearch:
     """
     Three-lane parallel search engine.
@@ -351,6 +392,9 @@ class TriadSearch:
                     # Step 4.6: Correct outdated abbreviations using authoritative Fedlex data
                     # Qdrant may have old abbreviations (e.g., ANAG instead of AIG for SR 142.20)
                     reranked['results'] = correct_abbreviations(reranked['results'])
+                    # Step 4.7: Boost ordinances (Verordnungen) for better practical guidance
+                    # Ordinances contain implementation details lawyers need (e.g., OASA vs LStrI)
+                    reranked['results'] = boost_ordinances(reranked['results'])
 
                 # Step 5: Fetch full document content for Qwen
                 # Chunks are for retrieval; Qwen needs full documents for accurate analysis
