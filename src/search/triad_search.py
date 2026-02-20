@@ -18,6 +18,113 @@ from src.database.vector_db import QdrantManager
 
 logger = logging.getLogger(__name__)
 
+
+def detect_query_context(query: str) -> Dict:
+    """
+    Detect language and canton mentions in query for smart boosting.
+
+    Returns:
+        {
+            'language': 'de'|'fr'|'it'|None,
+            'canton': 'TI'|'ZH'|...|None,
+            'canton_name': 'Ticino'|'Zürich'|...|None
+        }
+    """
+    query_lower = query.lower()
+
+    # Language detection based on common words
+    italian_markers = ['quale', 'quali', 'come', 'cosa', 'dove', 'quando', 'perché', 'chi',
+                       'sono', 'è', 'della', 'delle', 'nel', 'nella', 'per', 'con', 'licenza',
+                       'edilizia', 'costruzione', 'contratto', 'lavoro', 'legge']
+    french_markers = ['quel', 'quelle', 'comment', 'quoi', 'où', 'quand', 'pourquoi', 'qui',
+                      'sont', 'est', 'des', 'dans', 'pour', 'avec', 'permis', 'construction',
+                      'contrat', 'travail', 'loi']
+    german_markers = ['welche', 'welcher', 'wie', 'was', 'wo', 'wann', 'warum', 'wer',
+                      'sind', 'ist', 'der', 'die', 'das', 'für', 'mit', 'bewilligung',
+                      'bau', 'vertrag', 'arbeit', 'gesetz']
+
+    it_count = sum(1 for m in italian_markers if m in query_lower)
+    fr_count = sum(1 for m in french_markers if m in query_lower)
+    de_count = sum(1 for m in german_markers if m in query_lower)
+
+    language = None
+    if it_count > fr_count and it_count > de_count and it_count >= 2:
+        language = 'it'
+    elif fr_count > it_count and fr_count > de_count and fr_count >= 2:
+        language = 'fr'
+    elif de_count > 0:
+        language = 'de'
+
+    # Canton detection
+    canton_map = {
+        'ticino': ('TI', 'Ticino'), 'tessin': ('TI', 'Ticino'), 'canton ticino': ('TI', 'Ticino'),
+        'zürich': ('ZH', 'Zürich'), 'zurich': ('ZH', 'Zürich'), 'kanton zürich': ('ZH', 'Zürich'),
+        'bern': ('BE', 'Bern'), 'berne': ('BE', 'Bern'),
+        'genève': ('GE', 'Genève'), 'genf': ('GE', 'Genève'), 'geneva': ('GE', 'Genève'),
+        'vaud': ('VD', 'Vaud'), 'waadt': ('VD', 'Vaud'),
+        'valais': ('VS', 'Valais'), 'wallis': ('VS', 'Valais'),
+        'graubünden': ('GR', 'Graubünden'), 'grisons': ('GR', 'Graubünden'),
+        'fribourg': ('FR', 'Fribourg'), 'freiburg': ('FR', 'Fribourg'),
+    }
+
+    canton = None
+    canton_name = None
+    for keyword, (code, name) in canton_map.items():
+        if keyword in query_lower:
+            canton = code
+            canton_name = name
+            break
+
+    return {'language': language, 'canton': canton, 'canton_name': canton_name}
+
+
+def boost_by_context(results: List[Dict], query_context: Dict) -> List[Dict]:
+    """
+    Boost results based on query language and canton mentions.
+
+    - Same language as query: 1.5x score boost
+    - Matching canton: 2.0x score boost
+    """
+    language = query_context.get('language')
+    canton = query_context.get('canton')
+
+    if not language and not canton:
+        return results
+
+    boosted = []
+    for result in results:
+        payload = result.get('payload', {})
+        score = result.get('score', 0)
+        boost = 1.0
+
+        # Language boost
+        doc_lang = payload.get('language', 'de')
+        if language and doc_lang == language:
+            boost *= 1.5
+
+        # Canton boost (very strong for explicit canton mentions)
+        doc_canton = payload.get('canton')
+        doc_source = payload.get('source', 'fedlex')
+        if canton:
+            if doc_canton == canton:
+                boost *= 2.5  # Strong boost for exact canton match
+            elif canton == 'TI' and doc_source == 'ticino':
+                boost *= 2.5  # Ticino source match
+
+        result['score'] = score * boost
+        result['boost_applied'] = boost
+        boosted.append(result)
+
+    # Re-sort by boosted score
+    boosted.sort(key=lambda x: x.get('score', 0), reverse=True)
+
+    boosted_count = sum(1 for r in boosted if r.get('boost_applied', 1.0) > 1.0)
+    if boosted_count > 0:
+        logger.info(f"Boosted {boosted_count} results (lang={language}, canton={canton})")
+
+    return boosted
+
+
 # Active laws whitelist - loaded from discovered_laws.json
 # Only laws in this set are considered current/valid
 _ACTIVE_LAWS_CACHE = None
@@ -62,6 +169,9 @@ def filter_to_active_laws(results: List[Dict]) -> List[Dict]:
 
     Uses discovered_laws.json as the authoritative source for
     which SR numbers are currently in force.
+
+    Note: Ticino cantonal laws (source="ticino") are always kept
+    since they were scraped from the active laws list.
     """
     active_laws = _load_active_laws()
 
@@ -75,7 +185,14 @@ def filter_to_active_laws(results: List[Dict]) -> List[Dict]:
     for result in results:
         payload = result.get('payload', {})
         sr_number = payload.get('sr_number', '')
+        source = payload.get('source', 'fedlex')
 
+        # Always keep Ticino cantonal laws - they're already filtered at scrape time
+        if source == 'ticino':
+            filtered.append(result)
+            continue
+
+        # For federal laws, check against whitelist
         if sr_number in active_laws:
             filtered.append(result)
         else:
@@ -272,13 +389,18 @@ class TriadSearch:
             }
         """
         try:
+            # Step 0: Detect query language and canton for smart boosting
+            query_context = detect_query_context(query)
+            if query_context['language'] or query_context['canton']:
+                logger.info(f"Query context: lang={query_context['language']}, canton={query_context['canton']}")
+
             # Step 1: Generate query embedding (dense + sparse)
             query_vectors = await self.embedder.encode_async(query)
 
             # Step 2: Search all lanes in parallel using hybrid search
             lane_tasks = [
-                self._search_lane("codex", query, query_vectors, filters, top_k),
-                self._search_lane("library", query, query_vectors, filters, top_k),
+                self._search_lane("codex", query, query_vectors, filters, top_k, query_context),
+                self._search_lane("library", query, query_vectors, filters, top_k, query_context),
                 self._search_dossier(user_id, firm_id, query, query_vectors, filters, top_k)
             ]
 
@@ -307,17 +429,18 @@ class TriadSearch:
         query: str,
         query_vectors: Dict[str, any],
         filters: Optional[Dict],
-        top_k: int
+        top_k: int,
+        query_context: Optional[Dict] = None
     ) -> Dict:
         """
         Search single lane with full hybrid pipeline.
 
         Pipeline:
-        Pipeline:
-        1. Hybrid search - RRF fusion of dense + sparse (top 250)
-        2. MMR diversification (top 20)
-        3. Rerank with cross-encoder (top 10)
-        4. Confidence scoring
+        1. Hybrid search - RRF fusion of dense + sparse (top 500)
+        2. Context boosting (language + canton)
+        3. MMR diversification (top 100)
+        4. Rerank with cross-encoder (top 100)
+        5. Confidence scoring
         """
         try:
             # Step 1: Hybrid search (dense + sparse with RRF fusion)
@@ -334,8 +457,12 @@ class TriadSearch:
                 limit=500,  # Increased from 250 to capture more candidates
                 filters=lane_filters
             )
-            
+
             logger.info(f"{collection_name}: Got {len(candidates)} candidates from hybrid search")
+
+            # Step 1.5: Apply language and canton boosting for Codex
+            if collection_name == 'codex' and query_context and candidates:
+                candidates = boost_by_context(candidates, query_context)
 
             if not candidates:
                 logger.warning(f"{collection_name}: No candidates found")
