@@ -22,11 +22,13 @@ logger = logging.getLogger(__name__)
 SPARQL_ENDPOINT = "https://fedlex.data.admin.ch/sparqlendpoint"
 
 # Query for all active laws with abbreviations in DE/FR/IT
+# IMPORTANT: Include status to prioritize status=0 (in force) over status=3 (partially in force)
+# This is critical for SR numbers that have both old abrogated and new current laws
 ABBREVIATION_QUERY = """
 PREFIX jolux: <http://data.legilux.public.lu/resource/ontology/jolux#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 
-SELECT DISTINCT ?sr ?lang ?abbrev ?title WHERE {
+SELECT DISTINCT ?sr ?lang ?abbrev ?title ?status WHERE {
   ?law a jolux:ConsolidationAbstract .
   ?law jolux:classifiedByTaxonomyEntry ?taxonomy .
   ?law jolux:inForceStatus ?status .
@@ -54,7 +56,7 @@ SELECT DISTINCT ?sr ?lang ?abbrev ?title WHERE {
     AS ?lang
   )
 }
-ORDER BY ?sr ?lang
+ORDER BY ?sr ?status ?lang
 """
 
 
@@ -114,7 +116,10 @@ def fetch_abbreviations() -> Dict:
         return None
 
     # Process results
+    # Track status per SR to prefer status=0 (in force) over status=3 (partially in force)
+    # This is critical for SR numbers like 142.20 that have both old (ANAG) and new (AIG) laws
     by_sr: Dict[str, Dict] = {}
+    sr_status: Dict[str, int] = {}  # Track best status seen for each SR (lower = better)
     by_abbrev: Dict[str, Set[str]] = {}
     all_codes: Set[str] = set()
 
@@ -123,9 +128,18 @@ def fetch_abbreviations() -> Dict:
         lang = binding.get("lang", {}).get("value", "")
         abbrev = binding.get("abbrev", {}).get("value", "").strip()
         title = binding.get("title", {}).get("value", "")
+        status_uri = binding.get("status", {}).get("value", "")
 
         if not sr or not lang or not abbrev:
             continue
+
+        # Extract status number (0 = in force, 3 = partially in force)
+        # Lower status number = more authoritative
+        status_num = 99  # Default high number
+        if "status/0" in status_uri:
+            status_num = 0
+        elif "status/3" in status_uri:
+            status_num = 3
 
         # Normalize abbreviation (uppercase, remove dots)
         abbrev_normalized = abbrev.upper().replace(".", "").strip()
@@ -137,6 +151,26 @@ def fetch_abbreviations() -> Dict:
         # Skip abbreviations that are just numbers
         if abbrev_normalized.isdigit():
             continue
+
+        # Check if we already have this SR with better status
+        current_status = sr_status.get(sr, 99)
+        if sr in by_sr and status_num > current_status:
+            # Skip - we already have abbreviations from a better-status law
+            continue
+
+        # If this status is better, clear old data for this SR
+        if sr in by_sr and status_num < current_status:
+            # Remove old abbreviations from by_abbrev
+            for old_lang_key in ["de", "fr", "it"]:
+                old_abbrev = by_sr[sr].get(old_lang_key)
+                if old_abbrev and old_abbrev in by_abbrev:
+                    by_abbrev[old_abbrev].discard(sr)
+            # Clear old SR data
+            by_sr[sr] = {}
+            logger.info(f"SR {sr}: Replacing status {current_status} abbreviations with status {status_num}")
+
+        # Update status tracking
+        sr_status[sr] = status_num
 
         # Build by_sr structure
         if sr not in by_sr:

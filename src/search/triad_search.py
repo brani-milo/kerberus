@@ -88,6 +88,95 @@ def filter_to_active_laws(results: List[Dict]) -> List[Dict]:
     return filtered
 
 
+# Abbreviation correction cache - loaded from abbreviations.json
+_ABBREVIATIONS_CACHE = None
+
+
+def _load_abbreviations() -> Dict:
+    """Load the correct abbreviations from abbreviations.json."""
+    global _ABBREVIATIONS_CACHE
+
+    if _ABBREVIATIONS_CACHE is not None:
+        return _ABBREVIATIONS_CACHE
+
+    import json
+    from pathlib import Path
+
+    # Try multiple possible paths
+    possible_paths = [
+        Path("/app/data/fedlex/metadata/abbreviations.json"),  # Docker
+        Path(__file__).parent.parent.parent / "data" / "fedlex" / "metadata" / "abbreviations.json",  # Local
+    ]
+
+    for path in possible_paths:
+        if path.exists():
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    _ABBREVIATIONS_CACHE = data.get('by_sr', {})
+                    logger.info(f"Loaded {len(_ABBREVIATIONS_CACHE)} law abbreviations from {path}")
+                    return _ABBREVIATIONS_CACHE
+            except Exception as e:
+                logger.error(f"Failed to load abbreviations from {path}: {e}")
+
+    logger.warning("Could not load abbreviations - no corrections will be applied")
+    _ABBREVIATIONS_CACHE = {}
+    return _ABBREVIATIONS_CACHE
+
+
+def correct_abbreviations(results: List[Dict], language: str = 'de') -> List[Dict]:
+    """
+    Correct abbreviations in results using authoritative Fedlex data.
+
+    The Qdrant database may have outdated abbreviations (e.g., ANAG instead of AIG
+    for SR 142.20). This function corrects them using the abbreviations.json
+    which is generated from the official Fedlex SPARQL API.
+
+    Args:
+        results: Search results with payload containing sr_number and abbreviation
+        language: Language code ('de', 'fr', 'it') for selecting correct abbreviation
+
+    Returns:
+        Results with corrected abbreviations
+    """
+    abbrevs = _load_abbreviations()
+
+    if not abbrevs:
+        return results
+
+    corrected_count = 0
+    lang_map = {'de': 'de', 'fr': 'fr', 'it': 'it', 'en': 'de'}  # Fallback to German for English
+
+    for result in results:
+        payload = result.get('payload', {})
+        sr_number = payload.get('sr_number', '')
+
+        if sr_number in abbrevs:
+            correct_data = abbrevs[sr_number]
+            lang_key = lang_map.get(language, 'de')
+            correct_abbrev = correct_data.get(lang_key)
+            correct_title = correct_data.get(f'title_{lang_key}')
+
+            current_abbrev = payload.get('abbreviation')
+
+            if correct_abbrev and current_abbrev and current_abbrev != correct_abbrev:
+                logger.debug(f"Correcting SR {sr_number}: {current_abbrev} -> {correct_abbrev}")
+                payload['abbreviation'] = correct_abbrev
+                payload['abbreviations_all'] = {
+                    'de': correct_data.get('de', ''),
+                    'fr': correct_data.get('fr', ''),
+                    'it': correct_data.get('it', '')
+                }
+                if correct_title:
+                    payload['sr_name'] = correct_title
+                corrected_count += 1
+
+    if corrected_count > 0:
+        logger.info(f"Corrected {corrected_count} outdated abbreviations")
+
+    return results
+
+
 class TriadSearch:
     """
     Three-lane parallel search engine.
@@ -259,6 +348,9 @@ class TriadSearch:
                 # Uses discovered_laws.json whitelist to ensure only current laws are cited
                 if collection_name == 'codex':
                     reranked['results'] = filter_to_active_laws(reranked['results'])
+                    # Step 4.6: Correct outdated abbreviations using authoritative Fedlex data
+                    # Qdrant may have old abbreviations (e.g., ANAG instead of AIG for SR 142.20)
+                    reranked['results'] = correct_abbreviations(reranked['results'])
 
                 # Step 5: Fetch full document content for Qwen
                 # Chunks are for retrieval; Qwen needs full documents for accurate analysis
