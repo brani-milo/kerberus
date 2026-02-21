@@ -62,18 +62,34 @@ OUTPUT FORMAT (JSON only):
 
 CRITICAL ENHANCEMENT RULES (only for NEW questions, not follow-ups):
 - EXPAND the query with Swiss legal terminology that would appear in relevant law articles
+- ALWAYS use the SAME LANGUAGE as the user's query for the enhanced terms
 - Include BOTH the practical question AND the legal concepts that govern it
-- Use terms from Swiss civil law (OR, ZGB), employment law, contract law, etc.
+- Use terms from Swiss civil law (OR, ZGB, CO, CC), employment law, contract law, etc.
 - Do NOT cite specific article numbers — let the search engine find sources
 - The enhanced query should match how Swiss laws are actually written
 
-ENHANCEMENT EXAMPLES (expand to legal terminology):
+ENHANCEMENT EXAMPLES BY LANGUAGE:
+
+GERMAN queries → German legal terms:
+- "kann ich jemanden entlassen?" → "Kündigung Arbeitsverhältnis wichtiger Grund fristlose ordentliche Kündigungsfrist Arbeitsvertrag beenden"
+- "Scheidung" → "Scheidung Ehegatten Trennung Scheidungsgrund zerrüttet Unterhalt Güterteilung"
+- "Mieterhöhung" → "Mietzinserhöhung Mietvertrag missbräuchlich anfechten ortsüblicher Mietzins Rendite"
+
+ITALIAN queries → Italian legal terms:
+- "posso licenziare qualcuno?" → "licenziamento rapporto di lavoro motivo grave disdetta immediata termine di disdetta contratto di lavoro rescindere"
+- "quali sono i diritti dei lavoratori?" → "diritti lavoratore contratto di lavoro obblighi datore di lavoro protezione licenziamento salario ferie"
+- "divorzio" → "divorzio coniugi separazione causa scioglimento mantenimento divisione beni"
+- "aumento affitto" → "aumento pigione contratto locazione abusivo contestare pigione usuale rendimento"
+- "eredità" → "successione porzione legittima erede disposizione mortis causa testamento contratto successorio riduzione"
+
+FRENCH queries → French legal terms:
+- "puis-je licencier quelqu'un?" → "licenciement contrat de travail motif grave résiliation immédiate délai de congé contrat de travail résilier"
+- "divorce" → "divorce époux séparation cause dissolution pension alimentaire partage des biens"
+- "augmentation de loyer" → "augmentation loyer contrat de bail abusif contester loyer usuel rendement"
+
+ENGLISH queries → German legal terms (Swiss law is in DE/FR/IT):
 - "can I fire someone?" → "Kündigung Arbeitsverhältnis wichtiger Grund fristlose ordentliche Kündigungsfrist Arbeitsvertrag beenden"
-- "can employee share confidential data?" → "Treuepflicht Arbeitnehmer Sorgfaltspflicht Geschäftsgeheimnis berechtigte Interessen Arbeitgeber wahren Geheimhaltung"
-- "divorce" → "Scheidung Ehegatten Trennung Scheidungsgrund zerrüttet Unterhalt Güterteilung"
-- "rent increase" → "Mietzinserhöhung Mietvertrag missbräuchlich anfechten ortsüblicher Mietzins Rendite"
-- "work accident" → "Arbeitsunfall Betriebsunfall Haftung Arbeitgeber Unfallversicherung Schadenersatz Genugtuung"
-- "inheritance dispute" → "Erbschaft Pflichtteil Erbe Verfügung von Todes wegen Testament Erbvertrag Herabsetzungsklage"
+- "employee confidentiality" → "Treuepflicht Arbeitnehmer Sorgfaltspflicht Geschäftsgeheimnis berechtigte Interessen Arbeitgeber"
 
 FOLLOW-UP EXAMPLES:
 - "write the answer for them" → is_followup: true, followup_type: "draft_request"
