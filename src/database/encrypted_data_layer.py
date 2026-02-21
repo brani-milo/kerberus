@@ -302,125 +302,6 @@ class EncryptedChainlitDataLayer:
         logger.debug(f"Created thread {thread_id} for user {user_id}")
         return str(thread_id)
 
-    async def get_thread(self, thread_id: str) -> Optional[Dict]:
-        """
-        Get a thread by ID.
-
-        Args:
-            thread_id: Thread UUID string.
-
-        Returns:
-            Thread dict or None.
-        """
-        with self._session() as session:
-            thread = session.query(EncryptedThread).filter(
-                EncryptedThread.id == uuid.UUID(thread_id)
-            ).first()
-
-            if not thread:
-                return None
-
-            return {
-                "id": str(thread.id),
-                "user_id": thread.user_id,
-                "name": self._encryptor.decrypt(thread.name_encrypted),
-                "metadata": self._encryptor.decrypt_dict(thread.metadata_encrypted),
-                "created_at": thread.created_at.isoformat() if thread.created_at else None,
-                "updated_at": thread.updated_at.isoformat() if thread.updated_at else None,
-            }
-
-    async def list_threads(
-        self,
-        user_id: str,
-        limit: int = 20,
-        offset: int = 0
-    ) -> List[Dict]:
-        """
-        List threads for a user, ordered by most recent.
-
-        Args:
-            user_id: User identifier.
-            limit: Max threads to return.
-            offset: Pagination offset.
-
-        Returns:
-            List of thread dicts.
-        """
-        with self._session() as session:
-            threads = session.query(EncryptedThread).filter(
-                EncryptedThread.user_id == user_id,
-                EncryptedThread.is_active == True
-            ).order_by(
-                EncryptedThread.updated_at.desc()
-            ).offset(offset).limit(limit).all()
-
-            return [
-                {
-                    "id": str(t.id),
-                    "name": self._encryptor.decrypt(t.name_encrypted) or "Untitled",
-                    "created_at": t.created_at.isoformat() if t.created_at else None,
-                    "updated_at": t.updated_at.isoformat() if t.updated_at else None,
-                }
-                for t in threads
-            ]
-
-    async def update_thread(
-        self,
-        thread_id: str,
-        name: Optional[str] = None,
-        metadata: Optional[Dict] = None
-    ) -> bool:
-        """
-        Update a thread's name or metadata.
-
-        Args:
-            thread_id: Thread UUID string.
-            name: New name (optional).
-            metadata: New metadata (optional).
-
-        Returns:
-            True if updated, False if not found.
-        """
-        with self._session() as session:
-            thread = session.query(EncryptedThread).filter(
-                EncryptedThread.id == uuid.UUID(thread_id)
-            ).first()
-
-            if not thread:
-                return False
-
-            if name is not None:
-                thread.name_encrypted = self._encryptor.encrypt(name)
-            if metadata is not None:
-                thread.metadata_encrypted = self._encryptor.encrypt_dict(metadata)
-
-            thread.updated_at = datetime.now(timezone.utc)
-
-        return True
-
-    async def delete_thread(self, thread_id: str) -> bool:
-        """
-        Soft-delete a thread (marks inactive, preserves data).
-
-        Args:
-            thread_id: Thread UUID string.
-
-        Returns:
-            True if deleted, False if not found.
-        """
-        with self._session() as session:
-            thread = session.query(EncryptedThread).filter(
-                EncryptedThread.id == uuid.UUID(thread_id)
-            ).first()
-
-            if not thread:
-                return False
-
-            thread.is_active = False
-
-        logger.info(f"Soft-deleted thread {thread_id}")
-        return True
-
     # =========================================================================
     # MESSAGE OPERATIONS
     # =========================================================================
@@ -560,6 +441,201 @@ class EncryptedChainlitDataLayer:
             value=feedback.value,
             comment=feedback.comment,
         )
+
+    # =========================================================================
+    # CHAINLIT 2.x COMPATIBILITY METHODS
+    # =========================================================================
+
+    async def create_step(self, step) -> Optional[Dict]:
+        """Create a step (Chainlit 2.x). Steps are sub-units of messages."""
+        # Steps are transient in our implementation - we don't persist them
+        # as they're mainly for UI display during streaming
+        return None
+
+    async def update_step(self, step) -> Optional[Dict]:
+        """Update a step (Chainlit 2.x)."""
+        # Steps are transient - no persistence needed
+        return None
+
+    async def delete_step(self, step_id: str) -> bool:
+        """Delete a step (Chainlit 2.x)."""
+        return True
+
+    async def get_thread_author(self, thread_id: str) -> Optional[str]:
+        """Get the author (user_id) of a thread."""
+        thread = await self.get_thread(thread_id)
+        if thread:
+            return thread.get("user_id")
+        return None
+
+    async def delete_thread(self, thread_id: str) -> bool:
+        """
+        Soft-delete a thread (marks inactive, preserves data).
+
+        Args:
+            thread_id: Thread UUID string.
+
+        Returns:
+            True if deleted, False if not found.
+        """
+        with self._session() as session:
+            thread = session.query(EncryptedThread).filter(
+                EncryptedThread.id == uuid.UUID(thread_id)
+            ).first()
+
+            if not thread:
+                return False
+
+            thread.is_active = False
+
+        logger.info(f"Soft-deleted thread {thread_id}")
+        return True
+
+    async def list_threads(
+        self,
+        pagination,
+        filters
+    ) -> Any:
+        """
+        List threads with Chainlit 2.x pagination format.
+
+        Args:
+            pagination: Chainlit pagination object with first/cursor
+            filters: Chainlit filters object with userId
+
+        Returns:
+            PaginatedResponse with data and pageInfo
+        """
+        from dataclasses import dataclass
+
+        @dataclass
+        class PageInfo:
+            hasNextPage: bool
+            startCursor: Optional[str]
+            endCursor: Optional[str]
+
+        @dataclass
+        class PaginatedResponse:
+            data: List[Dict]
+            pageInfo: PageInfo
+
+        user_id = filters.userId if filters else None
+        limit = pagination.first if pagination else 20
+
+        if not user_id:
+            return PaginatedResponse(
+                data=[],
+                pageInfo=PageInfo(hasNextPage=False, startCursor=None, endCursor=None)
+            )
+
+        with self._session() as session:
+            threads = session.query(EncryptedThread).filter(
+                EncryptedThread.user_id == user_id,
+                EncryptedThread.is_active == True
+            ).order_by(
+                EncryptedThread.updated_at.desc()
+            ).limit(limit + 1).all()
+
+            has_next = len(threads) > limit
+            threads = threads[:limit]
+
+            data = []
+            for t in threads:
+                data.append({
+                    "id": str(t.id),
+                    "name": self._encryptor.decrypt(t.name_encrypted) or "Untitled",
+                    "createdAt": t.created_at.isoformat() if t.created_at else None,
+                    "updatedAt": t.updated_at.isoformat() if t.updated_at else None,
+                    "userId": t.user_id,
+                })
+
+            return PaginatedResponse(
+                data=data,
+                pageInfo=PageInfo(
+                    hasNextPage=has_next,
+                    startCursor=str(threads[0].id) if threads else None,
+                    endCursor=str(threads[-1].id) if threads else None
+                )
+            )
+
+    async def get_thread(self, thread_id: str) -> Optional[Dict]:
+        """
+        Get a thread by ID (Chainlit 2.x format).
+
+        Args:
+            thread_id: Thread UUID string.
+
+        Returns:
+            Thread dict or None.
+        """
+        with self._session() as session:
+            thread = session.query(EncryptedThread).filter(
+                EncryptedThread.id == uuid.UUID(thread_id)
+            ).first()
+
+            if not thread:
+                return None
+
+            # Get message count
+            msg_count = session.query(EncryptedMessage).filter(
+                EncryptedMessage.thread_id == thread.id
+            ).count()
+
+            return {
+                "id": str(thread.id),
+                "name": self._encryptor.decrypt(thread.name_encrypted) or "Untitled",
+                "metadata": self._encryptor.decrypt_dict(thread.metadata_encrypted),
+                "createdAt": thread.created_at.isoformat() if thread.created_at else None,
+                "updatedAt": thread.updated_at.isoformat() if thread.updated_at else None,
+                "userId": thread.user_id,
+                "userIdentifier": thread.user_id,
+                "steps": [],  # Steps loaded separately
+                "elements": [],  # Elements loaded separately
+            }
+
+    async def update_thread(
+        self,
+        thread_id: str,
+        name: Optional[str] = None,
+        user_id: Optional[str] = None,
+        metadata: Optional[Dict] = None,
+        tags: Optional[List[str]] = None,
+    ) -> Dict:
+        """
+        Update a thread (Chainlit 2.x format).
+
+        Args:
+            thread_id: Thread UUID string.
+            name: New name (optional).
+            user_id: User ID (optional, usually not changed).
+            metadata: New metadata (optional).
+            tags: Thread tags (optional).
+
+        Returns:
+            Updated thread dict.
+        """
+        with self._session() as session:
+            thread = session.query(EncryptedThread).filter(
+                EncryptedThread.id == uuid.UUID(thread_id)
+            ).first()
+
+            if not thread:
+                # Create new thread if not exists
+                thread = EncryptedThread(
+                    id=uuid.UUID(thread_id),
+                    user_id=user_id or "unknown",
+                    name_encrypted=self._encryptor.encrypt(name or ""),
+                    metadata_encrypted=self._encryptor.encrypt_dict(metadata or {}),
+                )
+                session.add(thread)
+            else:
+                if name is not None:
+                    thread.name_encrypted = self._encryptor.encrypt(name)
+                if metadata is not None:
+                    thread.metadata_encrypted = self._encryptor.encrypt_dict(metadata)
+                thread.updated_at = datetime.now(timezone.utc)
+
+        return await self.get_thread(thread_id)
 
 
 # =============================================================================

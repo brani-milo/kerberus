@@ -1,18 +1,19 @@
 """
-KERBERUS Chainlit Frontend - Unified App
+KERBERUS Chainlit Frontend
 
 Sovereign AI Legal Assistant for Swiss Law
 
-Two Modes:
-1. AI Legal Assistant: Query laws, decisions, get legal analysis (4-stage pipeline)
-2. Tabular Review: Upload docs, extract table, chat with data
-
-Switch modes using the action buttons.
+Features:
+- AI Legal Assistant: Query laws, decisions, get legal analysis (4-stage pipeline)
+- Multi-language support (German, French, Italian)
+- Encrypted conversation persistence
 
 Authentication:
 - Password-based login with MFA (TOTP)
 - Rate limiting per user
 - Session management via PostgreSQL
+
+Note: Tabular Review module preserved in review_app.py for future development.
 """
 
 import os
@@ -33,17 +34,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.search.triad_search import TriadSearch
 from src.llm import get_pipeline, ContextAssembler
 
-# Review imports
-from src.review import (
-    list_presets,
-    get_preset,
-    DocumentProcessor,
-    SchemaExtractor,
-    ReviewManager,
-    ExcelExporter,
-    ReviewChatHandler
-)
-from src.review.review_manager import Review
+# Document processor for file uploads in assistant mode
+from src.review import DocumentProcessor
 
 # Auth imports
 from src.database.auth_db import get_auth_db, verify_password, hash_password
@@ -76,29 +68,21 @@ def get_data_layer() -> Optional[EncryptedChainlitDataLayer]:
     return _data_layer
 
 
-# TODO: Fix EncryptedChainlitDataLayer compatibility with Chainlit 2.x
-# Missing methods: create_step, update_step, get_user returns None
-# Disabled temporarily to allow login
-# @cl.data_layer
-# def data_layer():
-#     """Chainlit data layer provider - returns encrypted PostgreSQL storage."""
-#     return get_data_layer()
+# Enable encrypted conversation persistence
+@cl.data_layer
+def data_layer():
+    """Chainlit data layer provider - returns encrypted PostgreSQL storage."""
+    return get_data_layer()
 
 # Global instances (initialized lazily)
 triad_search = None
 pipeline = None
 context_assembler = None
-
-# Review components
 doc_processor = None
-review_manager = None
-excel_exporter = None
 
 # Auth components
 auth_db = None
 rate_limiter = None
-
-MAX_DOCUMENTS = 30
 
 
 # =============================================================================
@@ -526,22 +510,13 @@ def format_sources_collapsible(codex_results: list, library_results: list, codex
     return "\n".join(parts) if parts else "No sources found."
 
 
-def get_mode_buttons(current_mode: str = None) -> List[cl.Action]:
-    """Get mode switching buttons."""
-    buttons = []
-    if current_mode != "assistant":
-        buttons.append(cl.Action(
-            name="mode_assistant",
-            payload={"mode": "assistant"},
-            label="⚖️ AI Legal Assistant"
-        ))
-    if current_mode != "review":
-        buttons.append(cl.Action(
-            name="mode_review",
-            payload={"mode": "review"},
-            label="📊 Tabular Review"
-        ))
-    return buttons
+def get_start_button() -> cl.Action:
+    """Get start button for AI Legal Assistant."""
+    return cl.Action(
+        name="mode_assistant",
+        payload={"mode": "assistant"},
+        label="⚖️ Start AI Legal Assistant"
+    )
 
 
 async def handle_mfa_verification(code: str):
@@ -567,8 +542,7 @@ async def handle_mfa_verification(code: str):
         cl.user_session.set("mode", "start")
 
         # Initialize components and show welcome
-        global triad_search, pipeline, context_assembler
-        global doc_processor, review_manager, excel_exporter
+        global triad_search, pipeline, context_assembler, doc_processor
 
         if triad_search is None:
             triad_search = TriadSearch()
@@ -578,21 +552,10 @@ async def handle_mfa_verification(code: str):
             context_assembler = ContextAssembler()
         if doc_processor is None:
             doc_processor = DocumentProcessor()
-        if review_manager is None:
-            review_manager = ReviewManager(storage_path="data/reviews")
-        if excel_exporter is None:
-            excel_exporter = ExcelExporter()
 
         cl.user_session.set("chat_history", [])
-        cl.user_session.set("current_review", None)
-        cl.user_session.set("documents", [])
 
         # Show welcome message
-        actions = [
-            cl.Action(name="mode_assistant", payload={"mode": "assistant"}, label="⚖️ AI Legal Assistant"),
-            cl.Action(name="mode_review", payload={"mode": "review"}, label="📊 Tabular Review"),
-        ]
-
         await cl.Message(
             content=f"""# 🛡️ **KERBERUS** - Swiss Legal Intelligence
 
@@ -600,18 +563,19 @@ Welcome, **{user.identifier}**!
 
 ---
 
-## Choose Your Mode:
+## ⚖️ AI Legal Assistant
 
-### ⚖️ AI Legal Assistant
 Ask legal questions in German, French, or Italian. Get answers with citations from Swiss laws and court decisions.
 
-### 📊 Tabular Review
-Upload up to 30 documents (PDF, DOCX, TXT). AI extracts structured data into a table. Chat with your data and export to Excel.
+**Examples:**
+- "What are the requirements for divorce in Switzerland?"
+- "Quels sont les délais de prescription en droit suisse?"
+- "Quali sono i diritti del lavoratore in caso di licenziamento?"
 
 ---
 
-_Click a button below to begin:_""",
-            actions=actions
+_Click the button below to begin:_""",
+            actions=[get_start_button()]
         ).send()
 
     else:
@@ -637,8 +601,7 @@ async def on_chat_resume(thread):
     This is called when a user clicks on a previous thread in the sidebar.
     The thread parameter contains the thread data from the data layer.
     """
-    global triad_search, pipeline, context_assembler
-    global doc_processor, review_manager, excel_exporter
+    global triad_search, pipeline, context_assembler, doc_processor
 
     logger.info(f"Resuming thread: {thread.get('id', 'unknown')}")
 
@@ -651,10 +614,6 @@ async def on_chat_resume(thread):
         context_assembler = ContextAssembler()
     if doc_processor is None:
         doc_processor = DocumentProcessor()
-    if review_manager is None:
-        review_manager = ReviewManager(storage_path="data/reviews")
-    if excel_exporter is None:
-        excel_exporter = ExcelExporter()
 
     # Restore chat history from thread messages
     chat_history = []
@@ -673,10 +632,8 @@ async def on_chat_resume(thread):
             logger.error(f"Failed to restore messages: {e}")
 
     # Set session state
-    cl.user_session.set("mode", "assistant")  # Default to assistant mode for resumed threads
+    cl.user_session.set("mode", "assistant")
     cl.user_session.set("chat_history", chat_history[-10:])  # Keep last 10 turns
-    cl.user_session.set("current_review", None)
-    cl.user_session.set("documents", [])
     cl.user_session.set("thread_id", thread.get("id"))
 
     # Show resume message
@@ -690,11 +647,7 @@ _Restored **{msg_count}** messages from "{thread_name}"._
 
 ---
 
-Continue your legal research or switch modes:""",
-        actions=[
-            cl.Action(name="mode_assistant", payload={"mode": "assistant"}, label="⚖️ Continue Legal Assistant"),
-            cl.Action(name="mode_review", payload={"mode": "review"}, label="📊 Switch to Tabular Review"),
-        ]
+Continue your legal research below. Just type your question."""
     ).send()
 
 
@@ -704,8 +657,7 @@ Continue your legal research or switch modes:""",
 
 @cl.on_chat_start
 async def on_chat_start():
-    global triad_search, pipeline, context_assembler
-    global doc_processor, review_manager, excel_exporter
+    global triad_search, pipeline, context_assembler, doc_processor
 
     # Check if user needs MFA verification
     user = cl.user_session.get("user")
@@ -720,27 +672,19 @@ _Or enter a backup code (format: XXXX-XXXX) if you don't have access to your aut
         ).send()
         return
 
-    # Initialize search components lazily
+    # Initialize components lazily
     if triad_search is None:
         triad_search = TriadSearch()
     if pipeline is None:
         pipeline = get_pipeline()
     if context_assembler is None:
         context_assembler = ContextAssembler()
-
-    # Initialize review components
     if doc_processor is None:
         doc_processor = DocumentProcessor()
-    if review_manager is None:
-        review_manager = ReviewManager(storage_path="data/reviews")
-    if excel_exporter is None:
-        excel_exporter = ExcelExporter()
 
     # Initialize session state
     cl.user_session.set("mode", "start")
     cl.user_session.set("chat_history", [])
-    cl.user_session.set("current_review", None)
-    cl.user_session.set("documents", [])
 
     # Get user info for personalized welcome
     user = cl.user_session.get("user")
@@ -790,41 +734,29 @@ Please set up 2FA now to continue using KERBERUS."""
         ).send()
         return
 
-    # Welcome message with mode buttons for authenticated users
-    actions = [
-        cl.Action(
-            name="mode_assistant",
-            payload={"mode": "assistant"},
-            label="⚖️ AI Legal Assistant"
-        ),
-        cl.Action(
-            name="mode_review",
-            payload={"mode": "review"},
-            label="📊 Tabular Review"
-        ),
-    ]
-
+    # Welcome message for authenticated users
     welcome_text = f"""# 🛡️ **KERBERUS** - Swiss Legal Intelligence
 
 Welcome back, **{user_email}**!
 
 ---
 
-## Choose Your Mode:
+## ⚖️ AI Legal Assistant
 
-### ⚖️ AI Legal Assistant
 Ask legal questions in German, French, or Italian. Get answers with citations from Swiss laws and court decisions.
 
-### 📊 Tabular Review
-Upload up to 30 documents (PDF, DOCX, TXT). AI extracts structured data into a table. Chat with your data and export to Excel.
+**Examples:**
+- "What are the requirements for divorce in Switzerland?"
+- "Quels sont les délais de prescription en droit suisse?"
+- "Quali sono i diritti del lavoratore in caso di licenziamento?"
 
 ---
 
-_Click a button below to begin:_"""
+_Click the button below to begin:_"""
 
     await cl.Message(
         content=welcome_text,
-        actions=actions
+        actions=[get_start_button()]
     ).send()
 
     # Set up settings (for search mode)
@@ -889,12 +821,6 @@ async def on_action_assistant(action: cl.Action):
     await switch_to_assistant_mode()
 
 
-@cl.action_callback("mode_review")
-async def on_action_review(action: cl.Action):
-    """Handle Tabular Review button click."""
-    # Remove the action button after click
-    await action.remove()
-    await switch_to_review_mode()
 
 
 @cl.action_callback("setup_mfa")
@@ -978,19 +904,12 @@ Your account is now protected with 2FA.
 
 ---
 
-## Choose Your Mode:
+## ⚖️ AI Legal Assistant
 
-### ⚖️ AI Legal Assistant
 Ask legal questions in German, French, or Italian. Get answers with citations from Swiss laws and court decisions.
 
-### 📊 Tabular Review
-Upload up to 30 documents (PDF, DOCX, TXT). AI extracts structured data into a table.
-
-_Click a button below to begin:_""",
-            actions=[
-                cl.Action(name="mode_assistant", payload={"mode": "assistant"}, label="⚖️ AI Legal Assistant"),
-                cl.Action(name="mode_review", payload={"mode": "review"}, label="📊 Tabular Review"),
-            ]
+_Click the button below to begin:_""",
+            actions=[get_start_button()]
         ).send()
 
         logger.info(f"MFA enabled for user: {user.identifier}")
@@ -1109,50 +1028,40 @@ async def on_message(message: cl.Message):
         ).send()
         return
 
-    # If still at start, prompt to select mode
+    # If still at start, prompt to begin
     if mode == "start":
-        actions = get_mode_buttons()
         await cl.Message(
-            content="Please select a mode to begin:",
-            actions=actions
+            content="Please click the button above to start the AI Legal Assistant.",
+            actions=[get_start_button()]
         ).send()
         return
 
     # Handle mode switching commands (still supported as fallback)
-    if lower_text in ["/assistant", "/search", "assistant"]:
+    if lower_text in ["/assistant", "/search", "assistant", "/start", "start"]:
         await switch_to_assistant_mode()
         return
 
-    if lower_text in ["/review", "review"]:
-        await switch_to_review_mode()
-        return
-
-    # Handle file uploads
+    # Handle file uploads in assistant mode
     if message.elements:
-        if mode == "review":
-            await handle_file_uploads(message.elements)
-            return
-        elif mode == "assistant":
+        if mode == "assistant":
             # In assistant mode, include file content in the legal analysis
             await handle_assistant_message(message, file_elements=message.elements)
             return
         else:
-            # Not in a valid mode yet
-            actions = get_mode_buttons()
             await cl.Message(
-                content="Please select a mode first to upload files.",
-                actions=actions
+                content="Please start the AI Legal Assistant first to upload files for analysis.",
+                actions=[get_start_button()]
             ).send()
             return
 
-    # Route to appropriate handler based on mode
+    # Route to assistant handler
     if mode == "assistant":
         await handle_assistant_message(message, file_elements=None)
-    elif mode == "review":
-        await handle_review_message(message)
     else:
-        actions = get_mode_buttons()
-        await cl.Message(content="Please select a mode:", actions=actions).send()
+        await cl.Message(
+            content="Please click the button to begin:",
+            actions=[get_start_button()]
+        ).send()
 
 
 # =============================================================================
@@ -1161,8 +1070,6 @@ async def on_message(message: cl.Message):
 
 async def switch_to_assistant_mode():
     cl.user_session.set("mode", "assistant")
-
-    actions = [cl.Action(name="mode_review", payload={"mode": "review"}, label="📊 Switch to Tabular Review")]
 
     await cl.Message(
         content="""# ⚖️ AI Legal Assistant
@@ -1174,37 +1081,10 @@ Ask your legal questions in German, French, or Italian.
 - "Quels sont les délais de prescription en droit suisse?"
 - "Quali sono i diritti del lavoratore in caso di licenziamento?"
 
-_Answers are backed by citations from Swiss laws and court decisions._""",
-        actions=actions
+_Answers are backed by citations from Swiss laws and court decisions._
+
+You can also upload documents (PDF, DOCX, TXT) for analysis using the 📎 button."""
     ).send()
-
-
-async def switch_to_review_mode():
-    cl.user_session.set("mode", "review")
-    cl.user_session.set("documents", [])
-    cl.user_session.set("current_review", None)
-
-    presets = list_presets()
-
-    actions = [cl.Action(name="mode_assistant", payload={"mode": "assistant"}, label="⚖️ Switch to AI Legal Assistant")]
-
-    msg = """# 📊 Tabular Review
-
-Select a preset for your document review:
-
-"""
-    for i, preset in enumerate(presets, 1):
-        msg += f"**{i}.** {preset['icon']} **{preset['name']}** ({preset['field_count']} fields)\n"
-        msg += f"   _{preset['description']}_\n"
-        # Add note for Court Case Summary
-        if preset['id'] == 'court_case_summary':
-            msg += f"   💡 _You can also upload your own case files for comparison_\n"
-        msg += "\n"
-
-    msg += """---
-Type the **number** or **name** of the preset to start (e.g., "1" or "Contract Review")"""
-
-    await cl.Message(content=msg, actions=actions).send()
 
 
 # =============================================================================
@@ -1588,440 +1468,6 @@ The search was successful. Please try again."""
     except Exception as e:
         msg.content = f"**Error:** {str(e)}"
         await msg.update()
-
-
-# =============================================================================
-# TABULAR REVIEW HANDLERS
-# =============================================================================
-
-async def handle_review_message(message: cl.Message):
-    """Handle messages in review mode."""
-    text = message.content.strip()
-    lower_text = text.lower()
-    review = cl.user_session.get("current_review")
-
-    # Check if selecting preset
-    if not review:
-        await handle_preset_selection(text)
-        return
-
-    # Check for commands
-    if lower_text in ["extract", "start extraction", "/extract"]:
-        await start_extraction()
-        return
-
-    if lower_text in ["export", "download excel", "/export"]:
-        await export_excel()
-        return
-
-    if lower_text in ["show table", "table", "/table"]:
-        await show_table()
-        return
-
-    if lower_text in ["help", "/help"]:
-        await show_review_help()
-        return
-
-    if lower_text.startswith("citation "):
-        parts = text.split()
-        if len(parts) >= 3:
-            await show_citation(parts[1], parts[2])
-        return
-
-    # If review is complete, treat as chat question
-    if review.status == "completed":
-        await handle_review_chat(text, review)
-        return
-
-    # Default guidance
-    docs = cl.user_session.get("documents", [])
-    await cl.Message(
-        content=f"""📎 Upload documents or type a command.
-
-**Current status:**
-- Documents uploaded: {len(docs)}/{MAX_DOCUMENTS}
-- Review: {review.name}
-
-**Commands:**
-- Upload files using the 📎 button
-- Type **"extract"** to start extraction"""
-    ).send()
-
-
-async def handle_preset_selection(text: str):
-    """Handle preset selection in review mode."""
-    presets = list_presets()
-    preset_id = None
-
-    # Try to match by number
-    try:
-        num = int(text)
-        if 1 <= num <= len(presets):
-            preset_id = presets[num - 1]["id"]
-    except ValueError:
-        pass
-
-    # Try to match by name
-    if not preset_id:
-        for preset in presets:
-            if text.lower() in preset["name"].lower():
-                preset_id = preset["id"]
-                break
-
-    if not preset_id:
-        await cl.Message(
-            content=f"❌ Unknown preset: '{text}'\n\nType a number (1-{len(presets)}) or preset name."
-        ).send()
-        return
-
-    # Get review name
-    res = await cl.AskUserMessage(
-        content="What would you like to name this review? (e.g., 'Q1 2026 Contract Review')",
-        timeout=300
-    ).send()
-
-    if res:
-        review_name = res.get("output", "Untitled Review")
-    else:
-        review_name = "Untitled Review"
-
-    # Create review
-    user_id = cl.user_session.get("user", {}).get("id", "demo_user")
-    review = review_manager.create_review(
-        user_id=user_id,
-        name=review_name,
-        preset_id=preset_id
-    )
-
-    cl.user_session.set("current_review", review)
-    preset = get_preset(preset_id)
-
-    await cl.Message(
-        content=f"""✅ Created review: **{review_name}**
-📋 Preset: {preset.icon} {preset.name} ({len(preset.fields)} fields)
-
-Now upload your documents (PDF, DOCX, or TXT).
-Maximum: {MAX_DOCUMENTS} files per review.
-
-_Tip: You can drag and drop multiple files at once._"""
-    ).send()
-
-
-async def handle_file_uploads(elements: List):
-    """Process uploaded files in review mode."""
-    review = cl.user_session.get("current_review")
-
-    if not review:
-        await cl.Message(
-            content="❌ No active review. Please select a preset first."
-        ).send()
-        return
-
-    documents = cl.user_session.get("documents", [])
-    remaining = MAX_DOCUMENTS - len(documents)
-
-    if remaining <= 0:
-        await cl.Message(
-            content=f"❌ Maximum {MAX_DOCUMENTS} documents per review. Type 'extract' to start."
-        ).send()
-        return
-
-    new_docs = []
-    errors = []
-
-    for element in elements[:remaining]:
-        if hasattr(element, 'path') and element.path:
-            try:
-                parsed = doc_processor.parse_file(element.path)
-                parsed.filename = element.name
-                new_docs.append(parsed)
-            except Exception as e:
-                errors.append(f"❌ {element.name}: {str(e)}")
-
-    documents.extend(new_docs)
-    cl.user_session.set("documents", documents)
-
-    if new_docs:
-        msg = f"✅ Added {len(new_docs)} document(s):\n"
-        for doc in new_docs:
-            msg += f"- 📄 {doc.filename} ({doc.total_pages} pages)\n"
-        msg += f"\n**Total documents:** {len(documents)}/{MAX_DOCUMENTS}"
-
-        if len(documents) >= 1:
-            msg += "\n\n_Type **'extract'** when ready to start extraction._"
-
-        await cl.Message(content=msg).send()
-
-    if errors:
-        await cl.Message(content="\n".join(errors)).send()
-
-
-async def start_extraction():
-    """Start the extraction process."""
-    review = cl.user_session.get("current_review")
-    documents = cl.user_session.get("documents", [])
-
-    if not review:
-        await cl.Message(content="❌ No active review.").send()
-        return
-
-    if not documents:
-        await cl.Message(content="❌ No documents uploaded. Please upload at least one document.").send()
-        return
-
-    if not os.environ.get("QWEN_API_KEY"):
-        await cl.Message(
-            content="❌ QWEN_API_KEY not set. Please set the environment variable."
-        ).send()
-        return
-
-    try:
-        extractor = SchemaExtractor()
-    except Exception as e:
-        await cl.Message(content=f"❌ Failed to initialize extractor: {e}").send()
-        return
-
-    progress_msg = await cl.Message(
-        content=f"🔄 Extracting from {len(documents)} documents...\n\nThis may take a few minutes."
-    ).send()
-
-    preset_id = review.preset_id
-    processed = 0
-    errors = []
-
-    for doc in documents:
-        try:
-            extraction = await extractor.extract_document(doc, preset_id)
-
-            if extraction.extraction_errors:
-                errors.extend(extraction.extraction_errors)
-            else:
-                review_manager.add_extraction(review.review_id, extraction)
-
-            processed += 1
-            progress_text = f"🔄 Processing... ({processed}/{len(documents)})\n"
-            progress_text += f"✅ {doc.filename}"
-            await progress_msg.update(content=progress_text)
-
-        except Exception as e:
-            errors.append(f"{doc.filename}: {str(e)}")
-            logger.error(f"Extraction error for {doc.filename}: {e}")
-
-    review_manager.complete_review(review.review_id)
-    review = review_manager.get_review(review.review_id)
-    cl.user_session.set("current_review", review)
-
-    result_msg = f"""# ✅ Extraction Complete
-
-**{processed} documents** processed successfully.
-**{len(review.rows)} rows** in your review table.
-"""
-
-    if errors:
-        result_msg += f"\n⚠️ **{len(errors)} errors:**\n"
-        for err in errors[:5]:
-            result_msg += f"- {err}\n"
-
-    result_msg += """
----
-## What's next?
-
-- Type **"show table"** to see the extracted data
-- **Ask questions** about your data (e.g., "What are the riskiest contracts?")
-- Type **"export"** to download as Excel
-"""
-
-    await cl.Message(content=result_msg).send()
-    await show_table()
-
-
-async def show_table():
-    """Display the review table."""
-    review = cl.user_session.get("current_review")
-
-    if not review or not review.rows:
-        await cl.Message(content="❌ No data to display.").send()
-        return
-
-    preset = get_preset(review.preset_id)
-    display_fields = [f for f in preset.fields[:8]]
-
-    # Build markdown table
-    table = "| # | Document |"
-    for f in display_fields:
-        if f.name != "document_name":
-            table += f" {f.display_name} |"
-    table += "\n|---|---|"
-    for f in display_fields:
-        if f.name != "document_name":
-            table += "---|"
-    table += "\n"
-
-    for idx, row in enumerate(review.rows, start=1):
-        table += f"| {idx} | {row.filename[:25]}{'...' if len(row.filename) > 25 else ''} |"
-
-        for f in display_fields:
-            if f.name != "document_name":
-                field_data = row.fields.get(f.name, {})
-                value = field_data.get("value")
-
-                if value is None:
-                    display = "-"
-                elif isinstance(value, bool):
-                    display = "✓" if value else "✗"
-                else:
-                    display = str(value)[:20]
-                    if len(str(value)) > 20:
-                        display += "..."
-
-                if field_data.get("citation"):
-                    display += " ⓘ"
-
-                table += f" {display} |"
-        table += "\n"
-
-    msg = f"""## 📊 Review Table: {review.name}
-
-{table}
-
-_Showing first 8 columns. Type **"export"** for full data with all {len(preset.fields)} fields._
-
-**To see a citation**: `citation [row#] [field_name]`
-**To ask questions**: Just type your question!
-"""
-
-    await cl.Message(content=msg).send()
-
-
-async def show_citation(row_num: str, field_name: str):
-    """Show citation for a specific field."""
-    review = cl.user_session.get("current_review")
-
-    if not review:
-        await cl.Message(content="❌ No active review.").send()
-        return
-
-    try:
-        idx = int(row_num) - 1
-        if idx < 0 or idx >= len(review.rows):
-            raise ValueError("Invalid row")
-    except ValueError:
-        await cl.Message(content=f"❌ Invalid row number: {row_num}").send()
-        return
-
-    row = review.rows[idx]
-    field_data = row.fields.get(field_name, {})
-
-    if not field_data:
-        await cl.Message(content=f"❌ Field '{field_name}' not found.").send()
-        return
-
-    citation = field_data.get("citation")
-
-    if not citation:
-        await cl.Message(
-            content=f"ℹ️ No citation for **{field_name}** in document #{row_num}.\n\nValue: {field_data.get('value')}"
-        ).send()
-        return
-
-    msg = f"""## 📎 Citation
-
-**Document:** {row.filename}
-**Field:** {field_name}
-**Value:** {field_data.get('value')}
-
----
-
-**Page:** {citation.get('page', 'N/A')}
-**Section:** {citation.get('section', 'N/A')}
-
-> {citation.get('quote', 'No quote available')}
-"""
-
-    await cl.Message(content=msg).send()
-
-
-async def export_excel():
-    """Export review to Excel."""
-    review = cl.user_session.get("current_review")
-
-    if not review or not review.rows:
-        await cl.Message(content="❌ No data to export.").send()
-        return
-
-    try:
-        excel_bytes = excel_exporter.export_review(review)
-        filename = excel_exporter.get_filename(review)
-
-        await cl.Message(
-            content=f"📥 **Excel Export Ready**\n\n- {len(review.rows)} rows\n- Citations sheet included\n- Summary sheet included",
-            elements=[
-                cl.File(
-                    name=filename,
-                    content=excel_bytes.getvalue(),
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            ]
-        ).send()
-
-    except Exception as e:
-        await cl.Message(content=f"❌ Export failed: {e}").send()
-
-
-async def handle_review_chat(question: str, review: Review):
-    """Handle chat questions about review data."""
-    try:
-        chat_handler = ReviewChatHandler()
-    except Exception as e:
-        await cl.Message(content=f"❌ Chat unavailable: {e}").send()
-        return
-
-    msg = cl.Message(content="🤔 Analyzing...")
-    await msg.send()
-
-    try:
-        response = await chat_handler.ask(review, question)
-        answer = response.answer
-
-        if response.citations:
-            answer += "\n\n---\n**📄 Documents Referenced:**\n"
-            for cite in response.citations:
-                answer += f"- Document {cite['document_number']}: {cite['filename']}\n"
-
-        if response.suggested_followups:
-            answer += "\n\n---\n**💡 You might also ask:**\n"
-            for followup in response.suggested_followups:
-                answer += f"- {followup}\n"
-
-        await msg.update(content=answer)
-        cl.user_session.set("current_review", review)
-
-    except Exception as e:
-        await msg.update(content=f"❌ Error: {e}")
-
-
-async def show_review_help():
-    """Show review mode help."""
-    actions = [cl.Action(name="mode_assistant", payload={"mode": "assistant"}, label="⚖️ Switch to AI Legal Assistant")]
-    
-    help_text = """## 📊 Tabular Review Commands
-
-| Command | Description |
-|---------|-------------|
-| **extract** | Start extraction from uploaded documents |
-| **show table** | Display the extracted data table |
-| **export** | Download review as Excel file |
-| **citation [row] [field]** | Show citation for a field |
-
-## 💬 Chat Examples
-
-Once extraction is complete, ask questions like:
-- "What are the 3 most valuable contracts?"
-- "Which documents mention change of control?"
-- "What is the total contract value?"
-"""
-
-    await cl.Message(content=help_text, actions=actions).send()
 
 
 # =============================================================================
