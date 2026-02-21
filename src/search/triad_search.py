@@ -398,13 +398,19 @@ class TriadSearch:
             query_vectors = await self.embedder.encode_async(query)
 
             # Step 2: Search all lanes in parallel using hybrid search
+            # CODEX: Two independent searches for laws (15) and ordinances (10)
+            # This guarantees 25 codex sources instead of relying on keyword split
             lane_tasks = [
-                self._search_lane("codex", query, query_vectors, filters, top_k, query_context),
+                self._search_codex_laws(query, query_vectors, filters, query_context, top_k=15),
+                self._search_codex_ordinances(query, query_vectors, filters, query_context, top_k=10),
                 self._search_lane("library", query, query_vectors, filters, top_k, query_context),
                 self._search_dossier(user_id, firm_id, query, query_vectors, filters, top_k)
             ]
 
-            codex_result, library_result, dossier_result = await asyncio.gather(*lane_tasks)
+            laws_result, ordinances_result, library_result, dossier_result = await asyncio.gather(*lane_tasks)
+
+            # Combine laws + ordinances into single codex result
+            codex_result = self._merge_codex_results(laws_result, ordinances_result)
 
             # Step 3: Determine overall confidence (minimum of all lanes)
             confidences = [codex_result['confidence'], library_result['confidence'], dossier_result['confidence']]
@@ -547,6 +553,210 @@ class TriadSearch:
                 'confidence': 'NONE',
                 'message': f'Error searching {collection_name}'
             }
+
+    async def _search_codex_laws(
+        self,
+        query: str,
+        query_vectors: Dict[str, any],
+        filters: Optional[Dict],
+        query_context: Optional[Dict],
+        top_k: int = 15
+    ) -> Dict:
+        """
+        Search ONLY laws (Gesetze) from Codex - independent search.
+
+        First tries doc_type filter, falls back to all results with keyword filtering.
+        """
+        try:
+            # Keywords that indicate ORDINANCE (we want to EXCLUDE these)
+            ORDINANCE_KEYWORDS = ['Verordnung', 'Ordonnance', 'Ordinanza', 'Reglement', 'Règlement', 'Regolamento']
+
+            # Try with doc_type filter first
+            law_filters = filters.copy() if filters else {}
+            law_filters['doc_type'] = 'law'
+
+            logger.info(f"Searching codex LAWS (top_k={top_k})")
+            candidates = self.vector_db.search_hybrid(
+                collection_name='codex',
+                dense_vector=query_vectors['dense'],
+                sparse_vector=query_vectors['sparse'],
+                limit=300,
+                filters=law_filters
+            )
+
+            # Fallback: if doc_type filter returns nothing, search all and filter by keyword
+            if not candidates:
+                logger.info("doc_type filter returned no results, using keyword filtering")
+                law_filters = filters.copy() if filters else None
+                all_candidates = self.vector_db.search_hybrid(
+                    collection_name='codex',
+                    dense_vector=query_vectors['dense'],
+                    sparse_vector=query_vectors['sparse'],
+                    limit=400,
+                    filters=law_filters
+                )
+                # Filter OUT ordinances by keyword
+                candidates = [
+                    c for c in all_candidates
+                    if not any(kw in c.get('payload', {}).get('sr_name', '') for kw in ORDINANCE_KEYWORDS)
+                ]
+
+            logger.info(f"codex_laws: Got {len(candidates)} law candidates")
+
+            # Apply canton boosting
+            if query_context and candidates:
+                candidates = boost_by_context(candidates, query_context)
+
+            if not candidates:
+                return {'results': [], 'confidence': 'NONE', 'message': 'No laws found'}
+
+            # MMR diversification
+            diverse_results = apply_mmr(
+                candidates=candidates,
+                query_embedding=query_vectors['dense'],
+                lambda_param=0.85,
+                top_k=60
+            )
+
+            # Rerank
+            rerank_docs = []
+            for doc in diverse_results:
+                payload = doc.get('payload', {})
+                text = payload.get('text_preview') or payload.get('article_text') or payload.get('text') or ''
+                rerank_docs.append({'text': text, **doc})
+
+            reranked = self.reranker.rerank_with_confidence(query=query, documents=rerank_docs, top_k=60)
+
+            # Deduplicate to top_k unique laws
+            if reranked.get('results'):
+                reranked['results'] = deduplicate_by_document(reranked['results'], top_k=top_k)
+                reranked['results'] = filter_to_active_laws(reranked['results'])
+                reranked['results'] = correct_abbreviations(reranked['results'])
+                # Mark as laws
+                for r in reranked['results']:
+                    r['payload']['doc_type'] = 'law'
+                reranked['results'] = enrich_results_with_full_content(reranked['results'], collection='codex')
+                logger.info(f"codex_laws: {len(reranked['results'])} unique laws")
+
+            return reranked
+
+        except Exception as e:
+            logger.error(f"Law search failed: {e}", exc_info=True)
+            return {'results': [], 'confidence': 'NONE', 'message': 'Error searching laws'}
+
+    async def _search_codex_ordinances(
+        self,
+        query: str,
+        query_vectors: Dict[str, any],
+        filters: Optional[Dict],
+        query_context: Optional[Dict],
+        top_k: int = 10
+    ) -> Dict:
+        """
+        Search ONLY ordinances (Verordnungen) from Codex - independent search.
+
+        First tries doc_type filter, falls back to all results with keyword filtering.
+        """
+        try:
+            # Keywords that indicate ORDINANCE (we want to INCLUDE these)
+            ORDINANCE_KEYWORDS = ['Verordnung', 'Ordonnance', 'Ordinanza', 'Reglement', 'Règlement', 'Regolamento']
+
+            # Try with doc_type filter first
+            ord_filters = filters.copy() if filters else {}
+            ord_filters['doc_type'] = 'ordinance'
+
+            logger.info(f"Searching codex ORDINANCES (top_k={top_k})")
+            candidates = self.vector_db.search_hybrid(
+                collection_name='codex',
+                dense_vector=query_vectors['dense'],
+                sparse_vector=query_vectors['sparse'],
+                limit=200,
+                filters=ord_filters
+            )
+
+            # Fallback: if doc_type filter returns nothing, search all and filter by keyword
+            if not candidates:
+                logger.info("doc_type filter returned no results, using keyword filtering for ordinances")
+                ord_filters = filters.copy() if filters else None
+                all_candidates = self.vector_db.search_hybrid(
+                    collection_name='codex',
+                    dense_vector=query_vectors['dense'],
+                    sparse_vector=query_vectors['sparse'],
+                    limit=300,
+                    filters=ord_filters
+                )
+                # Filter to ONLY ordinances by keyword
+                candidates = [
+                    c for c in all_candidates
+                    if any(kw in c.get('payload', {}).get('sr_name', '') for kw in ORDINANCE_KEYWORDS)
+                ]
+
+            logger.info(f"codex_ordinances: Got {len(candidates)} ordinance candidates")
+
+            # Apply canton boosting
+            if query_context and candidates:
+                candidates = boost_by_context(candidates, query_context)
+
+            if not candidates:
+                return {'results': [], 'confidence': 'NONE', 'message': 'No ordinances found'}
+
+            # MMR diversification
+            diverse_results = apply_mmr(
+                candidates=candidates,
+                query_embedding=query_vectors['dense'],
+                lambda_param=0.85,
+                top_k=40
+            )
+
+            # Rerank
+            rerank_docs = []
+            for doc in diverse_results:
+                payload = doc.get('payload', {})
+                text = payload.get('text_preview') or payload.get('article_text') or payload.get('text') or ''
+                rerank_docs.append({'text': text, **doc})
+
+            reranked = self.reranker.rerank_with_confidence(query=query, documents=rerank_docs, top_k=40)
+
+            # Deduplicate to top_k unique ordinances
+            if reranked.get('results'):
+                reranked['results'] = deduplicate_by_document(reranked['results'], top_k=top_k)
+                reranked['results'] = filter_to_active_laws(reranked['results'])
+                reranked['results'] = correct_abbreviations(reranked['results'])
+                # Mark as ordinances
+                for r in reranked['results']:
+                    r['payload']['doc_type'] = 'ordinance'
+                reranked['results'] = enrich_results_with_full_content(reranked['results'], collection='codex')
+                logger.info(f"codex_ordinances: {len(reranked['results'])} unique ordinances")
+
+            return reranked
+
+        except Exception as e:
+            logger.error(f"Ordinance search failed: {e}", exc_info=True)
+            return {'results': [], 'confidence': 'NONE', 'message': 'Error searching ordinances'}
+
+    def _merge_codex_results(self, laws_result: Dict, ordinances_result: Dict) -> Dict:
+        """
+        Merge laws and ordinances results into single codex result.
+
+        Laws come first, then ordinances.
+        """
+        laws = laws_result.get('results', [])
+        ordinances = ordinances_result.get('results', [])
+
+        combined = laws + ordinances
+        logger.info(f"Codex merged: {len(laws)} laws + {len(ordinances)} ordinances = {len(combined)} total")
+
+        # Determine overall confidence (take best of both)
+        confidence_order = ['NONE', 'LOW', 'MEDIUM', 'HIGH']
+        law_conf = laws_result.get('confidence', 'NONE')
+        ord_conf = ordinances_result.get('confidence', 'NONE')
+        overall_conf = max([law_conf, ord_conf], key=lambda c: confidence_order.index(c) if c in confidence_order else 0)
+
+        return {
+            'results': combined,
+            'confidence': overall_conf,
+            'message': f'{len(laws)} laws + {len(ordinances)} ordinances'
+        }
 
     async def _search_dossier(
         self,
