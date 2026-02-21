@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 
 def detect_query_context(query: str) -> Dict:
     """
-    Detect language and canton mentions in query for smart boosting.
+    Detect language and canton mentions in query.
+
+    Language is used for query enhancement (generating legal terms in same language).
+    Canton is used for boosting cantonal law results.
 
     Returns:
         {
@@ -80,15 +83,17 @@ def detect_query_context(query: str) -> Dict:
 
 def boost_by_context(results: List[Dict], query_context: Dict) -> List[Dict]:
     """
-    Boost results based on query language and canton mentions.
+    Boost results based on canton mentions in query.
 
-    - Same language as query: 1.5x score boost
-    - Matching canton: 2.0x score boost
+    - Matching canton: 3.5x score boost
+
+    Note: Language boost removed intentionally. A user asking in Italian
+    may need German/French laws that are more pertinent to their case.
+    The law's relevance matters more than its language.
     """
-    language = query_context.get('language')
     canton = query_context.get('canton')
 
-    if not language and not canton:
+    if not canton:
         return results
 
     boosted = []
@@ -97,19 +102,13 @@ def boost_by_context(results: List[Dict], query_context: Dict) -> List[Dict]:
         score = result.get('score', 0)
         boost = 1.0
 
-        # Language boost
-        doc_lang = payload.get('language', 'de')
-        if language and doc_lang == language:
-            boost *= 1.5
-
-        # Canton boost (very strong for explicit canton mentions)
+        # Canton boost (strong for explicit canton mentions)
         doc_canton = payload.get('canton')
         doc_source = payload.get('source', 'fedlex')
-        if canton:
-            if doc_canton == canton:
-                boost *= 2.5  # Strong boost for exact canton match
-            elif canton == 'TI' and doc_source == 'ticino':
-                boost *= 2.5  # Ticino source match
+        if doc_canton == canton:
+            boost *= 3.5  # Strong boost for exact canton match
+        elif canton == 'TI' and doc_source == 'ticino':
+            boost *= 3.5  # Ticino source match
 
         result['score'] = score * boost
         result['boost_applied'] = boost
@@ -120,7 +119,7 @@ def boost_by_context(results: List[Dict], query_context: Dict) -> List[Dict]:
 
     boosted_count = sum(1 for r in boosted if r.get('boost_applied', 1.0) > 1.0)
     if boosted_count > 0:
-        logger.info(f"Boosted {boosted_count} results (lang={language}, canton={canton})")
+        logger.info(f"Boosted {boosted_count} results (canton={canton})")
 
     return boosted
 
