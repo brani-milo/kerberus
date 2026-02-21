@@ -303,7 +303,7 @@ class LegalPipeline:
         self,
         codex_results: List[Dict],
         library_results: List[Dict],
-        max_laws: int = 20,
+        max_laws: int = 25,
         max_decisions: int = 10,
     ) -> Tuple[str, str, Dict]:
         """

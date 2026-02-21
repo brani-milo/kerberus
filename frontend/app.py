@@ -1333,12 +1333,13 @@ Please try:
         ]
 
         # Run synchronous Qdrant calls in thread to avoid blocking event loop
+        # Feed Qwen with 25 law articles (15 laws + 10 ordinances) and 10 decisions = 35 inputs
         laws_context, decisions_context, context_meta = await asyncio.to_thread(
             pipeline.build_context,
             codex_results=codex_for_context,
             library_results=library_for_context,
-            max_laws=10,
-            max_decisions=15,
+            max_laws=25,
+            max_decisions=10,
         )
         logger.info(f"STAGE 4: build_context completed - laws={context_meta.get('laws_count', 0)}, decisions={context_meta.get('decisions_count', 0)}")
 

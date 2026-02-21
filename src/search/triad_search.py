@@ -293,22 +293,23 @@ def correct_abbreviations(results: List[Dict], language: str = 'de') -> List[Dic
     return results
 
 
-def split_laws_and_ordinances(results: List[Dict], top_k: int = 10) -> List[Dict]:
+def split_laws_and_ordinances(results: List[Dict], top_laws: int = 15, top_ordinances: int = 10) -> List[Dict]:
     """
     Split results into laws and ordinances, returning top of each.
 
-    Laws define principles, ordinances specify implementation.
+    Laws define principles, ordinances/regulations specify implementation.
     Qwen needs both to give complete legal advice.
-    E.g., LStrI Art. 42 (principle) + OASA Art. 15a (procedure).
+    E.g., LE Art. 2 (principle) + RLE Art. 8 (procedure).
 
     Args:
         results: Search results
-        top_k: How many of each type to return (default 10 each = 20 total)
+        top_laws: How many laws to return (default 15)
+        top_ordinances: How many ordinances/regulations to return (default 10)
 
     Returns:
-        Combined list: top_k laws + top_k ordinances
+        Combined list: top_laws + top_ordinances (default 25 total)
     """
-    # Keywords indicating an ordinance (in DE/FR/IT titles)
+    # Keywords indicating an ordinance/regulation (in DE/FR/IT titles)
     ORDINANCE_KEYWORDS = ['Verordnung', 'Ordonnance', 'Ordinanza', 'Reglement', 'Règlement', 'Regolamento']
 
     laws = []
@@ -327,14 +328,14 @@ def split_laws_and_ordinances(results: List[Dict], top_k: int = 10) -> List[Dict
             result['is_ordinance'] = False
             laws.append(result)
 
-    # Take top_k of each, already sorted by score from reranking
-    top_laws = laws[:top_k]
-    top_ordinances = ordinances[:top_k]
+    # Take top of each, already sorted by score from reranking
+    selected_laws = laws[:top_laws]
+    selected_ordinances = ordinances[:top_ordinances]
 
-    logger.info(f"Codex split: {len(top_laws)} laws + {len(top_ordinances)} ordinances")
+    logger.info(f"Codex split: {len(selected_laws)} laws + {len(selected_ordinances)} ordinances")
 
     # Return laws first, then ordinances
-    return top_laws + top_ordinances
+    return selected_laws + selected_ordinances
 
 
 class TriadSearch:
@@ -524,9 +525,9 @@ class TriadSearch:
                     # Qdrant may have old abbreviations (e.g., ANAG instead of AIG for SR 142.20)
                     reranked['results'] = correct_abbreviations(reranked['results'])
                     # Step 4.7: Split into laws + ordinances for balanced coverage
-                    # Laws = principles (LStrI), Ordinances = implementation (OASA)
-                    # Qwen gets both and decides what's relevant
-                    reranked['results'] = split_laws_and_ordinances(reranked['results'], top_k=top_k)
+                    # Laws = principles (LE Art. 2), Ordinances = implementation (RLE Art. 8)
+                    # Qwen gets 15 laws + 10 ordinances = 25 total for complete legal advice
+                    reranked['results'] = split_laws_and_ordinances(reranked['results'], top_laws=15, top_ordinances=10)
 
                 # Step 5: Fetch full document content for Qwen
                 # Chunks are for retrieval; Qwen needs full documents for accurate analysis
