@@ -485,7 +485,7 @@ class TriadSearch:
             diverse_results = apply_mmr(
                 candidates=candidates,
                 query_embedding=query_vectors['dense'],
-                lambda_param=0.85,
+                lambda_param=0.98,  # High lambda: relevance > diversity for legal research
                 top_k=100  # Increased from 50 to capture more diverse candidates
             )
 
@@ -611,12 +611,13 @@ class TriadSearch:
             if not candidates:
                 return {'results': [], 'confidence': 'NONE', 'message': 'No laws found'}
 
-            # MMR diversification
+            # MMR diversification - HIGH lambda (0.98) for laws to keep similar but relevant articles
+            # Legal nuances matter: Art. 2 LE and RLE Art. 8 are related but both needed
             diverse_results = apply_mmr(
                 candidates=candidates,
                 query_embedding=query_vectors['dense'],
-                lambda_param=0.85,
-                top_k=60
+                lambda_param=0.98,  # Almost no diversity penalty - relevance is king
+                top_k=80
             )
 
             # Rerank
@@ -706,7 +707,7 @@ class TriadSearch:
             diverse_results = apply_mmr(
                 candidates=candidates,
                 query_embedding=query_vectors['dense'],
-                lambda_param=0.85,
+                lambda_param=0.98,  # High lambda: relevance > diversity for legal research
                 top_k=40
             )
 
@@ -827,7 +828,7 @@ class TriadSearch:
             diverse_results = apply_mmr(
                 candidates=all_results,
                 query_embedding=query_vectors['dense'],
-                lambda_param=0.85,
+                lambda_param=0.98,  # High lambda: relevance > diversity for legal research
                 top_k=100  # Keep 100 for reranker to score
             )
 
