@@ -401,8 +401,8 @@ class TriadSearch:
             # CODEX: Two independent searches for laws (15) and ordinances (10)
             # This guarantees 25 codex sources instead of relying on keyword split
             lane_tasks = [
-                self._search_codex_laws(query, query_vectors, filters, query_context, top_k=15),
-                self._search_codex_ordinances(query, query_vectors, filters, query_context, top_k=10),
+                self._search_codex_laws(query, query_vectors, filters, query_context, top_k=20),
+                self._search_codex_ordinances(query, query_vectors, filters, query_context, top_k=15),
                 self._search_lane("library", query, query_vectors, filters, top_k, query_context),
                 self._search_dossier(user_id, firm_id, query, query_vectors, filters, top_k)
             ]
@@ -560,12 +560,13 @@ class TriadSearch:
         query_vectors: Dict[str, any],
         filters: Optional[Dict],
         query_context: Optional[Dict],
-        top_k: int = 15
+        top_k: int = 20
     ) -> Dict:
         """
         Search ONLY laws (Gesetze) from Codex - independent search.
 
         First tries doc_type filter, falls back to all results with keyword filtering.
+        Returns up to 20 unique law articles for comprehensive coverage.
         """
         try:
             # Keywords that indicate ORDINANCE (we want to EXCLUDE these)
@@ -650,12 +651,13 @@ class TriadSearch:
         query_vectors: Dict[str, any],
         filters: Optional[Dict],
         query_context: Optional[Dict],
-        top_k: int = 10
+        top_k: int = 15
     ) -> Dict:
         """
         Search ONLY ordinances (Verordnungen) from Codex - independent search.
 
         First tries doc_type filter, falls back to all results with keyword filtering.
+        Returns up to 15 unique ordinance articles - critical for implementation details.
         """
         try:
             # Keywords that indicate ORDINANCE (we want to INCLUDE these)
