@@ -565,42 +565,30 @@ class TriadSearch:
         """
         Search ONLY laws (Gesetze) from Codex - independent search.
 
-        First tries doc_type filter, falls back to all results with keyword filtering.
+        Uses keyword filtering to identify laws (excludes ordinances).
         Returns up to 20 unique law articles for comprehensive coverage.
         """
         try:
             # Keywords that indicate ORDINANCE (we want to EXCLUDE these)
             ORDINANCE_KEYWORDS = ['Verordnung', 'Ordonnance', 'Ordinanza', 'Reglement', 'Règlement', 'Regolamento']
 
-            # Try with doc_type filter first
-            law_filters = filters.copy() if filters else {}
-            law_filters['doc_type'] = 'law'
-
             logger.info(f"Searching codex LAWS (top_k={top_k})")
-            candidates = self.vector_db.search_hybrid(
+
+            # Search all codex, then filter to laws by keyword
+            all_candidates = self.vector_db.search_hybrid(
                 collection_name='codex',
                 dense_vector=query_vectors['dense'],
                 sparse_vector=query_vectors['sparse'],
-                limit=300,
-                filters=law_filters
+                limit=400,
+                filters=filters
             )
 
-            # Fallback: if doc_type filter returns nothing, search all and filter by keyword
-            if not candidates:
-                logger.info("doc_type filter returned no results, using keyword filtering")
-                law_filters = filters.copy() if filters else None
-                all_candidates = self.vector_db.search_hybrid(
-                    collection_name='codex',
-                    dense_vector=query_vectors['dense'],
-                    sparse_vector=query_vectors['sparse'],
-                    limit=400,
-                    filters=law_filters
-                )
-                # Filter OUT ordinances by keyword
-                candidates = [
-                    c for c in all_candidates
-                    if not any(kw in c.get('payload', {}).get('sr_name', '') for kw in ORDINANCE_KEYWORDS)
-                ]
+            # Filter OUT ordinances by keyword in sr_name
+            candidates = [
+                c for c in all_candidates
+                if not any(kw in c.get('payload', {}).get('sr_name', '') for kw in ORDINANCE_KEYWORDS)
+            ]
+            logger.info(f"codex_laws: {len(candidates)} law candidates after keyword filtering")
 
             logger.info(f"codex_laws: Got {len(candidates)} law candidates")
 
@@ -657,42 +645,30 @@ class TriadSearch:
         """
         Search ONLY ordinances (Verordnungen) from Codex - independent search.
 
-        First tries doc_type filter, falls back to all results with keyword filtering.
+        Uses keyword filtering to identify ordinances.
         Returns up to 15 unique ordinance articles - critical for implementation details.
         """
         try:
             # Keywords that indicate ORDINANCE (we want to INCLUDE these)
             ORDINANCE_KEYWORDS = ['Verordnung', 'Ordonnance', 'Ordinanza', 'Reglement', 'Règlement', 'Regolamento']
 
-            # Try with doc_type filter first
-            ord_filters = filters.copy() if filters else {}
-            ord_filters['doc_type'] = 'ordinance'
-
             logger.info(f"Searching codex ORDINANCES (top_k={top_k})")
-            candidates = self.vector_db.search_hybrid(
+
+            # Search all codex, then filter to ordinances by keyword
+            all_candidates = self.vector_db.search_hybrid(
                 collection_name='codex',
                 dense_vector=query_vectors['dense'],
                 sparse_vector=query_vectors['sparse'],
-                limit=200,
-                filters=ord_filters
+                limit=300,
+                filters=filters
             )
 
-            # Fallback: if doc_type filter returns nothing, search all and filter by keyword
-            if not candidates:
-                logger.info("doc_type filter returned no results, using keyword filtering for ordinances")
-                ord_filters = filters.copy() if filters else None
-                all_candidates = self.vector_db.search_hybrid(
-                    collection_name='codex',
-                    dense_vector=query_vectors['dense'],
-                    sparse_vector=query_vectors['sparse'],
-                    limit=300,
-                    filters=ord_filters
-                )
-                # Filter to ONLY ordinances by keyword
-                candidates = [
-                    c for c in all_candidates
-                    if any(kw in c.get('payload', {}).get('sr_name', '') for kw in ORDINANCE_KEYWORDS)
-                ]
+            # Filter to ONLY ordinances by keyword in sr_name
+            candidates = [
+                c for c in all_candidates
+                if any(kw in c.get('payload', {}).get('sr_name', '') for kw in ORDINANCE_KEYWORDS)
+            ]
+            logger.info(f"codex_ordinances: {len(candidates)} ordinance candidates after keyword filtering")
 
             logger.info(f"codex_ordinances: Got {len(candidates)} ordinance candidates")
 
