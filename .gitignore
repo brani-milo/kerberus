@@ -4,6 +4,7 @@
 # Internal documentation (not for public)
 README_INTERNAL.md
 CLAUDE.md
+INTERVIEW_PREP_KERBERUS.md
 # ============================================
 # Environment & Secrets (NEVER COMMIT)
 # ============================================
@@ -60,6 +61,12 @@ data/redis_data/
 # Raw scraped data (large files)
 data/raw/
 data/processed/
+
+# Embeddings data (large JSON files)
+data/embeddings/
+
+# Archive files (large)
+*.tar.gz
 
 # Scraped data (keep directory structure, ignore content)
 data/ticino/*.html
