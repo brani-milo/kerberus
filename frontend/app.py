@@ -449,17 +449,17 @@ def format_sources_collapsible(codex_results: list, library_results: list, codex
     library_emoji = get_search_confidence_indicator(library_conf)
 
     if codex_results:
-        parts.append(f"**Laws (Codex)**\n")
-        for i, res in enumerate(codex_results[:10], 1):
+        parts.append(f"**Laws (Codex)** ({len(codex_results)} sources)\n")
+        for i, res in enumerate(codex_results[:25], 1):  # Show up to 25 (15 laws + 10 ordinances)
             parts.append(format_law_result(res, i))
 
     if library_results:
-        parts.append(f"\n**{library_emoji} Case Law (Library) - {library_conf}**\n")
+        parts.append(f"\n**{library_emoji} Case Law (Library) - {library_conf}** ({len(library_results)} sources)\n")
         seen_ids = set()
         seen_texts = set()  # Also dedupe by text content
         rank = 1
         for res in library_results:
-            if rank > 10:  # Hard limit
+            if rank > 15:  # Show up to 15 unique decisions
                 break
 
             payload = res.get('payload', {})
