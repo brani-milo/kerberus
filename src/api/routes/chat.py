@@ -179,6 +179,8 @@ async def chat(
             law_count=len(codex_results),
             decision_count=len(library_results),
             topics=topics,
+            tasks=guard_result.tasks,
+            primary_task=guard_result.primary_task,
         )
     except Exception as e:
         logger.error(f"Reformulate stage failed: {e}")
@@ -411,6 +413,8 @@ async def chat_stream(
                 law_count=len(codex_results),
                 decision_count=len(library_results),
                 topics=guard_result.legal_concepts or ["general"],
+                tasks=guard_result.tasks,
+                primary_task=guard_result.primary_task,
             )
         except Exception as e:
             reformulated_query = guard_result.enhanced_query

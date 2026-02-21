@@ -34,9 +34,13 @@ class GuardResult:
     original_query: str
     enhanced_query: str
     legal_concepts: List[str]
-    query_type: str
     is_followup: bool  # True if this is a follow-up to previous answer
     followup_type: Optional[str]  # "draft_request", "clarification", "elaboration", or None
+    # New task detection fields
+    tasks: List[str]  # e.g., ["legal_analysis", "drafting", "contract_review"]
+    primary_task: str  # Main task for prioritization
+    search_needed: bool  # Whether RAG search is needed
+    target_language: Optional[str]  # For translation requests
     response: LLMResponse
 
 
@@ -129,6 +133,11 @@ class LegalPipeline:
 
             data = json.loads(content.strip())
 
+            # Parse tasks (default to legal_analysis if not present)
+            tasks = data.get("tasks", ["legal_analysis"])
+            if not tasks:
+                tasks = ["legal_analysis"]
+
             return GuardResult(
                 status=data.get("status", "OK"),
                 block_reason=data.get("block_reason"),
@@ -136,15 +145,18 @@ class LegalPipeline:
                 original_query=data.get("original_query", query),
                 enhanced_query=data.get("enhanced_query", query),
                 legal_concepts=data.get("legal_concepts", []),
-                query_type=data.get("query_type", "unclear"),
                 is_followup=data.get("is_followup", False),
                 followup_type=data.get("followup_type"),
+                tasks=tasks,
+                primary_task=data.get("primary_task", tasks[0] if tasks else "legal_analysis"),
+                search_needed=data.get("search_needed", True),
+                target_language=data.get("target_language"),
                 response=response,
             )
 
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning(f"Failed to parse guard response: {e}")
-            # Fallback: pass through
+            # Fallback: pass through with defaults
             return GuardResult(
                 status="OK",
                 block_reason=None,
@@ -152,9 +164,12 @@ class LegalPipeline:
                 original_query=query,
                 enhanced_query=query,
                 legal_concepts=[],
-                query_type="unclear",
                 is_followup=False,
                 followup_type=None,
+                tasks=["legal_analysis"],
+                primary_task="legal_analysis",
+                search_needed=True,
+                target_language=None,
                 response=response,
             )
 
@@ -166,11 +181,14 @@ class LegalPipeline:
         law_count: int,
         decision_count: int,
         topics: List[str],
+        tasks: List[str] = None,
+        primary_task: str = None,
     ) -> Tuple[str, LLMResponse]:
         """
         Stage 3: Reformulate Query (Mistral 2)
 
         - Reiterate user intent clearly
+        - Pass detected TASKS to Qwen
         - Structure for Qwen
         - NO interpretation
         """
@@ -181,11 +199,22 @@ class LegalPipeline:
             "en": "English",
         }
 
+        # Default tasks if not provided
+        if tasks is None:
+            tasks = ["legal_analysis"]
+        if primary_task is None:
+            primary_task = tasks[0] if tasks else "legal_analysis"
+
+        # Format tasks for display
+        tasks_str = ", ".join(tasks).upper().replace("_", " ")
+
         messages = [
             {"role": "system", "content": ReformulatorPrompts.SYSTEM},
             {"role": "user", "content": ReformulatorPrompts.USER_TEMPLATE.format(
                 query=original_query,
                 enhanced_query=enhanced_query,
+                tasks=tasks_str,
+                primary_task=primary_task.upper().replace("_", " "),
                 language=language,
                 language_name=language_names.get(language, "German"),
                 law_count=law_count,

@@ -1207,6 +1207,10 @@ Please rephrase your question or contact support."""
             legal_concepts = guard_result.legal_concepts
             is_followup = guard_result.is_followup
             followup_type = guard_result.followup_type
+            # New task detection fields
+            tasks = guard_result.tasks
+            primary_task = guard_result.primary_task
+            search_needed = guard_result.search_needed
 
         except Exception as guard_error:
             logger.warning(f"Guard stage failed: {guard_error}")
@@ -1215,6 +1219,9 @@ Please rephrase your question or contact support."""
             legal_concepts = []
             is_followup = False
             followup_type = None
+            tasks = ["legal_analysis"]
+            primary_task = "legal_analysis"
+            search_needed = True
 
         # Check if this is a follow-up question
         previous_context = cl.user_session.get("previous_context")
@@ -1315,6 +1322,8 @@ Please try:
             law_count=len(codex_results),
             decision_count=len(library_results),
             topics=topics,
+            tasks=tasks,
+            primary_task=primary_task,
         )
         logger.info("STAGE 3: Reformulate completed")
 
