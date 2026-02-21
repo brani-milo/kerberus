@@ -508,9 +508,10 @@ class TriadSearch:
 
             # Step 4: Deduplicate - keep only best chunk per unique document
             # This ensures we feed Qwen with unique cases/laws, not chunks from same docs
-            # For Codex: need 2x top_k to allow 10 laws + 10 ordinances after split
+            # For Codex: need enough candidates for 15 laws + 10 ordinances = 25 after split
+            # Use max(top_k * 3, 35) to ensure enough candidates even after filtering
             if reranked.get('results'):
-                dedupe_limit = top_k * 2 if collection_name == 'codex' else top_k
+                dedupe_limit = max(top_k * 3, 35) if collection_name == 'codex' else top_k
                 reranked['results'] = deduplicate_by_document(
                     reranked['results'],
                     top_k=dedupe_limit
