@@ -1092,7 +1092,15 @@ You can also upload documents (PDF, DOCX, TXT) for analysis using the 📎 butto
 # =============================================================================
 
 async def handle_assistant_message(message: cl.Message, file_elements: List = None):
-    global triad_search, pipeline, doc_processor
+    global triad_search, pipeline, doc_processor, context_assembler
+
+    # Ensure components are initialized (guard against None)
+    if triad_search is None:
+        triad_search = TriadSearch()
+    if pipeline is None:
+        pipeline = get_pipeline()
+    if context_assembler is None:
+        context_assembler = ContextAssembler()
 
     # Check rate limit
     user = cl.user_session.get("user")
