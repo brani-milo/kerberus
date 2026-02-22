@@ -672,15 +672,16 @@ class TriadSearch:
             # Keywords that indicate ORDINANCE (we want to EXCLUDE these)
             ORDINANCE_KEYWORDS = ['Verordnung', 'Ordonnance', 'Ordinanza', 'Reglement', 'Règlement', 'Regolamento']
 
-            logger.info(f"Searching codex LAWS (top_k={top_k})")
+            logger.info(f"Searching codex LAWS (top_k={top_k}), filters={filters}")
 
             # Search all codex, then filter to laws by keyword
+            # NOTE: Pass filters=None for codex to avoid blocking all results
             all_candidates = self.vector_db.search_hybrid(
                 collection_name='codex',
                 dense_vector=query_vectors['dense'],
                 sparse_vector=query_vectors['sparse'],
                 limit=400,
-                filters=filters
+                filters=None  # Don't filter codex - we use keyword filtering instead
             )
 
             # DEBUG: Log what Qdrant actually returned
@@ -760,12 +761,13 @@ class TriadSearch:
             logger.info(f"Searching codex ORDINANCES (top_k={top_k})")
 
             # Search all codex, then filter to ordinances by keyword
+            # NOTE: Pass filters=None for codex - we use keyword filtering instead
             all_candidates = self.vector_db.search_hybrid(
                 collection_name='codex',
                 dense_vector=query_vectors['dense'],
                 sparse_vector=query_vectors['sparse'],
                 limit=300,
-                filters=filters
+                filters=None  # Don't filter codex - we use keyword filtering instead
             )
 
             # DEBUG: Log what Qdrant actually returned
