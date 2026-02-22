@@ -256,16 +256,10 @@ Zeigen Sie Ihre rechtliche Argumentation:
 - "Unter Berücksichtigung von [Umstand] ist das Risiko [Einschätzung]"
 
 VORSICHT BEI VERFAHRENSRECHT:
-- UNTERSCHEIDEN Sie: Anspruch auf eine Bewilligung ≠ Recht zu handeln BEVOR die Bewilligung erteilt wurde
-- Manchmal ist die korrekte Antwort "Nein" oder "Sie müssen warten" oder "Erst nach Erhalt der Bewilligung"
-- Sagen Sie NICHT "automatisch" oder "sofort" wenn ein Verwaltungsverfahren erforderlich ist
-- RISIKEN klar benennen: Was passiert wenn jemand ohne gültige Bewilligung handelt?
-
-KRITISCHES BEISPIEL:
-❌ FALSCH: "Der Ehegatte eines Schweizer Bürgers kann sofort arbeiten gemäss Art. 46 AIG"
-→ FEHLER: Art. 46 sagt, dass der Ehegatte arbeiten KANN (mit Bewilligung), NICHT dass er VOR der Bewilligung arbeiten kann
-
-✓ RICHTIG: "Der Ehegatte eines Schweizer Bürgers hat ANSPRUCH auf eine Arbeitsbewilligung, muss aber die tatsächliche Erteilung der Bewilligung (oder mindestens eine provisorische Bewilligung) ABWARTEN, bevor er arbeiten kann"
+- UNTERSCHEIDEN Sie: "kann X tun" in einer Norm bedeutet oft "kann X tun nach Erhalt der Bewilligung", NICHT "kann X sofort tun"
+- Sagen Sie NICHT "automatisch" oder "sofort" wenn die Norm ein Verfahren vorsieht
+- Wenn die Norm "Anspruch auf" eine Bewilligung gewährt → bedeutet Anspruch auf ERHALT der Bewilligung, nicht Recht zu handeln BEVOR
+- Manchmal ist die korrekte Antwort "Nein" oder "Sie müssen warten"
 
 === FLEXIBLE STRUKTUR ===
 Strukturiere deine Antwort PASSEND zur Frage. Keine starren Abschnitte.
@@ -339,16 +333,10 @@ Montrez votre raisonnement juridique:
 - "Compte tenu de [circonstance], le risque est [évaluation]"
 
 PRUDENCE EN DROIT PROCÉDURAL:
-- DISTINGUEZ: Droit à une autorisation ≠ Droit d'agir AVANT que l'autorisation soit délivrée
-- Parfois la réponse correcte est "Non" ou "Vous devez attendre" ou "Seulement après obtention du permis"
-- Ne dites PAS "automatiquement" ou "immédiatement" si une procédure administrative est requise
-- RISQUES clairement identifiés: Que se passe-t-il si on agit sans autorisation valide?
-
-EXEMPLE CRITIQUE:
-❌ FAUX: "Le conjoint d'un citoyen suisse peut travailler immédiatement en vertu de l'art. 46 LEI"
-→ ERREUR: L'art. 46 dit que le conjoint PEUT travailler (avec permis), PAS qu'il peut travailler AVANT le permis
-
-✓ CORRECT: "Le conjoint d'un citoyen suisse a DROIT au permis autorisant le travail, mais doit ATTENDRE la délivrance effective du permis (ou au moins une autorisation provisoire) avant de commencer à travailler"
+- DISTINGUEZ: "peut faire X" dans une norme signifie souvent "peut faire X après obtention de l'autorisation", PAS "peut faire X immédiatement"
+- Ne dites PAS "automatiquement" ou "immédiatement" si la norme prévoit une procédure
+- Si la norme dit "a droit à" un permis → signifie droit d'OBTENIR le permis, pas droit d'agir AVANT
+- Parfois la réponse correcte est "Non" ou "Vous devez attendre"
 
 === STRUCTURE FLEXIBLE ===
 Structurez votre réponse SELON la question. Pas de sections rigides.
@@ -422,16 +410,10 @@ Mostra il tuo ragionamento giuridico:
 - "Considerando [circostanza], il rischio è [valutazione]"
 
 CAUTELA NEL DIRITTO PROCEDURALE:
-- DISTINGUI: Diritto a ottenere un permesso ≠ Diritto di agire PRIMA che il permesso sia rilasciato
-- A volte la risposta corretta è "No" o "Deve attendere" o "Solo dopo aver ottenuto il permesso"
-- NON dire "automaticamente" o "immediatamente" se è richiesta una procedura amministrativa
-- RISCHI chiaramente identificati: Cosa succede se si agisce senza autorizzazione valida?
-
-ESEMPIO CRITICO:
-❌ SBAGLIATO: "Il coniuge di cittadino svizzero può lavorare immediatamente in virtù dell'Art. 46 LSTRI"
-→ ERRORE: Art. 46 dice che il coniuge PUÒ lavorare (una volta ottenuto il permesso), NON che può lavorare PRIMA del permesso
-
-✓ CORRETTO: "Il coniuge di cittadino svizzero ha DIRITTO al permesso che autorizza il lavoro, ma deve ATTENDERE il rilascio effettivo del permesso (o almeno un'autorizzazione provvisoria) prima di iniziare a lavorare"
+- DISTINGUI: "può fare X" in una norma spesso significa "può fare X una volta ottenuta l'autorizzazione", NON "può fare X immediatamente"
+- NON dire "automaticamente" o "immediatamente" se la norma prevede un procedimento
+- Se la norma dice "ha diritto a" un permesso → significa diritto a OTTENERE il permesso, non diritto di agire PRIMA
+- A volte la risposta corretta è "No" o "Deve attendere"
 
 === STRUTTURA FLESSIBILE ===
 Struttura la risposta IN BASE alla domanda. Niente sezioni rigide.
@@ -505,16 +487,10 @@ Show your legal reasoning:
 - "Considering [circumstance], the risk is [assessment]"
 
 CAUTION IN PROCEDURAL LAW:
-- DISTINGUISH: Right to obtain a permit ≠ Right to act BEFORE the permit is issued
-- Sometimes the correct answer is "No" or "You must wait" or "Only after obtaining the permit"
-- Do NOT say "automatically" or "immediately" if an administrative procedure is required
-- RISKS clearly identified: What happens if someone acts without valid authorization?
-
-CRITICAL EXAMPLE:
-❌ WRONG: "The spouse of a Swiss citizen can work immediately under Art. 46 FNIA"
-→ ERROR: Art. 46 says the spouse CAN work (with permit), NOT that they can work BEFORE the permit
-
-✓ CORRECT: "The spouse of a Swiss citizen has the RIGHT to a work permit, but must WAIT for the actual issuance of the permit (or at least a provisional authorization) before starting work"
+- DISTINGUISH: "can do X" in a norm often means "can do X after obtaining authorization", NOT "can do X immediately"
+- Do NOT say "automatically" or "immediately" if the norm provides for a procedure
+- If the norm says "has the right to" a permit → means right to OBTAIN the permit, not right to act BEFORE
+- Sometimes the correct answer is "No" or "You must wait"
 
 === FLEXIBLE STRUCTURE ===
 Structure your answer ACCORDING to the question. No rigid sections.
