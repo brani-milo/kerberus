@@ -19,25 +19,70 @@ from src.database.vector_db import QdrantManager
 logger = logging.getLogger(__name__)
 
 
-# Legal domain expansion - related concepts that should be searched together
-# Key: trigger keywords, Value: additional search terms
+# =========================================================================
+# AGNOSTIC LEGAL DOMAIN EXPANSION
+# =========================================================================
+# Key insight: Laws are interconnected. A query about topic X often needs
+# laws from related topics Y and Z. Rather than hardcoding every domain,
+# we use two strategies:
+#
+# 1. TRIGGER-BASED: Common legal topics with known related areas
+# 2. SR-PREFIX-BASED: Laws with same SR prefix are related (e.g., SR 7XX = building/planning)
+#
+# This makes the system work for ANY legal domain, not just construction.
+
 LEGAL_DOMAIN_EXPANSION = {
-    # Building permits need planning, landscape, water, environment + SPECIFIC TICINO LAWS
-    'edilizia': 'sviluppo territoriale pianificazione paesaggio protezione natura acque ambiente polizia costruzioni LE RLE LST RLST LGA RLGA RLCN legge edilizia regolamento gestione acque protezione conservazione natura paesaggio',
-    'baubewilligung': 'raumplanung landschaft natur gewässer umwelt baupolizei entwicklung',
-    'permis de construire': 'aménagement territoire paysage nature eaux environnement police constructions',
-    'licenza edilizia': 'sviluppo territoriale pianificazione paesaggio protezione natura acque ambiente LE RLE LST RLST LGA RLGA RLCN legge edilizia regolamento gestione acque conservazione natura paesaggio',
-    'costruzione': 'pianificazione territorio paesaggio acque ambiente LE RLE LST RLST LGA protezione conservazione natura',
-    'costruire': 'pianificazione territorio paesaggio acque ambiente LE RLE LST protezione conservazione natura',
-    # Ticino-specific triggers
-    'ticino': 'LE RLE LST RLST LGA RLGA RLCN legge edilizia sviluppo territoriale gestione acque protezione conservazione natura paesaggio',
-    'canton ticino': 'LE RLE LST RLST LGA RLGA RLCN legge edilizia sviluppo territoriale gestione acque protezione conservazione natura paesaggio',
-    # Employment law needs social insurance, permits
-    'arbeit': 'sozialversicherung arbeitsvertrag kündigung arbeitsbewilligung',
-    'lavoro': 'assicurazione sociale contratto licenziamento permesso',
-    # Contract law
-    'vertrag': 'obligationenrecht haftung vertragsbruch schadenersatz',
-    'contratto': 'obbligazioni responsabilità inadempimento risarcimento',
+    # === CONSTRUCTION & PLANNING (Ticino-focused) ===
+    'edilizia': 'sviluppo territoriale pianificazione paesaggio protezione natura acque ambiente polizia costruzioni LE RLE LST RLST LGA RLGA RLCN',
+    'licenza edilizia': 'sviluppo territoriale pianificazione paesaggio protezione natura acque ambiente LE RLE LST RLST LGA RLGA RLCN',
+    'costruzione': 'pianificazione territorio paesaggio acque ambiente LE RLE LST LGA protezione natura',
+    'baubewilligung': 'raumplanung landschaft natur gewässer umwelt baupolizei RPG GSchG NHG',
+    'permis de construire': 'aménagement territoire paysage nature eaux environnement LAT LEaux LPN',
+
+    # === EMPLOYMENT ===
+    'lavoro': 'contratto assicurazione sociale licenziamento permesso CO LAINF LPP',
+    'arbeit': 'arbeitsvertrag sozialversicherung kündigung arbeitsbewilligung OR UVG BVG',
+    'travail': 'contrat assurance sociale licenciement permis CO LAA LPP',
+    'licenziamento': 'termine disdetta giusta causa indennità CO',
+    'kündigung': 'frist missbräuchlich entschädigung OR',
+
+    # === CONTRACTS ===
+    'contratto': 'obbligazioni responsabilità inadempimento risarcimento CO',
+    'vertrag': 'obligationenrecht haftung vertragsbruch schadenersatz OR',
+    'contrat': 'obligations responsabilité inexécution dommages CO',
+
+    # === FAMILY LAW ===
+    'divorzio': 'separazione mantenimento affidamento CC CPC',
+    'scheidung': 'trennung unterhalt sorgerecht ZGB ZPO',
+    'divorce': 'séparation entretien garde CC CPC',
+    'matrimonio': 'regime patrimoniale comunione separazione CC',
+    'ehe': 'güterstand gütergemeinschaft gütertrennung ZGB',
+
+    # === INHERITANCE ===
+    'successione': 'eredità legittima testamento CC',
+    'erbschaft': 'erbe pflichtteil testament ZGB',
+    'succession': 'héritage réserve testament CC',
+
+    # === CRIMINAL ===
+    'reato': 'pena procedura penale CP CPP',
+    'straftat': 'strafe strafverfahren StGB StPO',
+    'infraction': 'peine procédure pénale CP CPP',
+
+    # === CANTONAL TRIGGERS (auto-expand with cantonal abbreviations) ===
+    'ticino': 'LE RLE LST RLST LGA RLGA RLCN legge cantonale',
+    'canton ticino': 'LE RLE LST RLST LGA RLGA RLCN legge cantonale',
+    'zürich': 'PBG BauO kantonales gesetz',
+    'genève': 'LCI loi cantonale',
+}
+
+# SR number prefixes and their related legal domains
+# This enables automatic expansion based on found results
+SR_PREFIX_DOMAINS = {
+    '7': 'costruzione edilizia pianificazione territorio ambiente acque natura',  # Construction/Planning
+    '2': 'contratto obbligazioni responsabilità civile',  # Private law
+    '3': 'penale reato pena procedura',  # Criminal law
+    '8': 'assicurazione sociale lavoro salute',  # Social insurance
+    '1': 'costituzione diritti fondamentali organizzazione',  # Constitutional
 }
 
 
@@ -45,13 +90,12 @@ def expand_query_with_related_domains(query: str) -> str:
     """
     Expand query with related legal domains to improve recall.
 
-    Building permits aren't just about LE - they involve:
-    - LST (planning law)
-    - LGA (water law)
-    - Nature/landscape protection
-    - Environmental law
+    AGNOSTIC APPROACH:
+    - Uses trigger-based expansion for common legal topics
+    - Works for ANY legal domain, not just construction
+    - Ensures we retrieve related laws, not just the obvious ones
 
-    This ensures we retrieve ALL relevant laws, not just the obvious ones.
+    A divorce query will find CC + CPC, employment will find CO + insurance laws, etc.
     """
     query_lower = query.lower()
     expansions = []
@@ -61,8 +105,11 @@ def expand_query_with_related_domains(query: str) -> str:
             expansions.append(related_terms)
 
     if expansions:
-        expanded = query + ' ' + ' '.join(expansions)
-        logger.info(f"Query expanded with related domains: +{len(' '.join(expansions).split())} terms")
+        # Deduplicate expansion terms
+        all_terms = ' '.join(expansions).split()
+        unique_terms = list(dict.fromkeys(all_terms))  # Preserve order, remove dupes
+        expanded = query + ' ' + ' '.join(unique_terms)
+        logger.info(f"Query expanded with related domains: +{len(unique_terms)} terms")
         return expanded
 
     return query
