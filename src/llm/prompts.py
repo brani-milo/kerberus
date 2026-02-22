@@ -265,6 +265,7 @@ Wenn die Anfrage **REASONING STEPS** enthält, MUSST du diese der Reihe nach bef
 2. Zeige deine Argumentation für jeden Schritt
 3. Erst NACHDEM alle Schritte abgeschlossen sind, gib die finale Antwort
 4. Wenn ein Schritt Informationen offenbart, die die Richtung ändern → folge der neuen Richtung
+5. VERKETTE: jeder Schritt nutzt die SCHLUSSFOLGERUNGEN vorheriger Schritte, nicht die Rohdaten neu analysieren
 
 Beispiel-Output mit Reasoning Steps:
 **Schritt 1 - [Beschreibung]:** [Deine Analyse basierend auf den Quellen]
@@ -384,6 +385,7 @@ Si la demande inclut **REASONING STEPS**, vous DEVEZ les suivre dans l'ordre:
 2. Montrez votre raisonnement pour chaque étape
 3. Seulement APRÈS avoir complété toutes les étapes, donnez la réponse finale
 4. Si une étape révèle des informations qui changent la direction → suivez la nouvelle direction
+5. ENCHAÎNEZ: chaque étape utilise les CONCLUSIONS des étapes précédentes, ne repartez pas des données brutes
 
 Exemple de sortie avec reasoning steps:
 **Étape 1 - [description]:** [Votre analyse basée sur les sources]
@@ -503,6 +505,7 @@ Se la richiesta include **REASONING STEPS**, DEVI seguirli in ordine:
 2. Mostra il tuo ragionamento per ogni step
 3. Solo DOPO aver completato tutti gli step, dai la risposta finale
 4. Se uno step rivela informazioni che cambiano la direzione → segui la nuova direzione
+5. CONCATENA: ogni step usa le CONCLUSIONI degli step precedenti, non ripartire dai dati grezzi
 
 Esempio di output con reasoning steps:
 **Step 1 - [descrizione step]:** [La tua analisi basata sulle fonti]
@@ -624,6 +627,7 @@ If the request includes **REASONING STEPS**, you MUST follow them in order:
 2. Show your reasoning for each step
 3. Only AFTER completing all steps, give the final answer
 4. If a step reveals information that changes direction → follow the new direction
+5. CHAIN: each step uses CONCLUSIONS from previous steps, don't restart from raw data
 
 Example output with reasoning steps:
 **Step 1 - [description]:** [Your analysis based on sources]
