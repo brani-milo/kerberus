@@ -19,6 +19,52 @@ from src.database.vector_db import QdrantManager
 logger = logging.getLogger(__name__)
 
 
+# Legal domain expansion - related concepts that should be searched together
+# Key: trigger keywords, Value: additional search terms
+LEGAL_DOMAIN_EXPANSION = {
+    # Building permits need planning, landscape, water, environment
+    'edilizia': 'sviluppo territoriale pianificazione paesaggio protezione natura acque ambiente polizia costruzioni',
+    'baubewilligung': 'raumplanung landschaft natur gewässer umwelt baupolizei entwicklung',
+    'permis de construire': 'aménagement territoire paysage nature eaux environnement police constructions',
+    'licenza edilizia': 'sviluppo territoriale pianificazione paesaggio protezione natura acque ambiente',
+    'costruzione': 'pianificazione territorio paesaggio acque ambiente',
+    'costruire': 'pianificazione territorio paesaggio acque ambiente',
+    # Employment law needs social insurance, permits
+    'arbeit': 'sozialversicherung arbeitsvertrag kündigung arbeitsbewilligung',
+    'lavoro': 'assicurazione sociale contratto licenziamento permesso',
+    # Contract law
+    'vertrag': 'obligationenrecht haftung vertragsbruch schadenersatz',
+    'contratto': 'obbligazioni responsabilità inadempimento risarcimento',
+}
+
+
+def expand_query_with_related_domains(query: str) -> str:
+    """
+    Expand query with related legal domains to improve recall.
+
+    Building permits aren't just about LE - they involve:
+    - LST (planning law)
+    - LGA (water law)
+    - Nature/landscape protection
+    - Environmental law
+
+    This ensures we retrieve ALL relevant laws, not just the obvious ones.
+    """
+    query_lower = query.lower()
+    expansions = []
+
+    for trigger, related_terms in LEGAL_DOMAIN_EXPANSION.items():
+        if trigger in query_lower:
+            expansions.append(related_terms)
+
+    if expansions:
+        expanded = query + ' ' + ' '.join(expansions)
+        logger.info(f"Query expanded with related domains: +{len(' '.join(expansions).split())} terms")
+        return expanded
+
+    return query
+
+
 def detect_query_context(query: str) -> Dict:
     """
     Detect language and canton mentions in query.
@@ -394,8 +440,12 @@ class TriadSearch:
             if query_context['language'] or query_context['canton']:
                 logger.info(f"Query context: lang={query_context['language']}, canton={query_context['canton']}")
 
-            # Step 1: Generate query embedding (dense + sparse)
-            query_vectors = await self.embedder.encode_async(query)
+            # Step 0.5: Expand query with related legal domains for better recall
+            # Building permits need planning law, water law, landscape protection, etc.
+            expanded_query = expand_query_with_related_domains(query)
+
+            # Step 1: Generate query embedding (dense + sparse) from EXPANDED query
+            query_vectors = await self.embedder.encode_async(expanded_query)
 
             # Step 2: Search all lanes in parallel using hybrid search
             # CODEX: Two independent searches for laws (15) and ordinances (10)
