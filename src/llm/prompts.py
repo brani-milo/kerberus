@@ -174,14 +174,35 @@ Structure as:
 2. CONTEXT: [the situation/background]
 3. QUESTION: [what the user needs to know]
 
-Example reformulation:
-INSTEAD OF: "User asks about unemployment benefits duration"
+MULTI-STEP REASONING:
+For complex questions, break down the reasoning into explicit steps the analyst MUST follow.
+Analyze what intermediate questions need to be answered to reach the final answer.
 
-WRITE: "FACTS: Worked 15.01.2019-16.07.2024 (first job), unemployed 2.5 months, worked 01.10.2024-31.12.2025 (second job). Current Rahmenfrist open until 15.07.2026.
-CONTEXT: Company closed, user now unemployed again.
-QUESTION: How long will unemployment benefits last after current Rahmenfrist ends?"
+Add a section:
+**REASONING STEPS:**
+1. [First thing to determine/verify from the sources]
+2. [Second logical step based on step 1]
+3. [Continue until final answer can be reached]
+...
+→ Final: [The actual question to answer]
 
-Keep it concise (5-8 sentences max)."""
+Examples of when to use multi-step:
+- Temporal questions ("after X happens, what then?") → First determine what X is, then what happens at X, then what comes after
+- Conditional questions ("can I do X if Y?") → First verify Y, then check requirements for X
+- Calculation questions with multiple periods → Calculate each period, then combine
+- Questions about future events → Determine current state, then applicable rules, then future outcome
+
+Example multi-step for temporal question:
+"After my Rahmenfrist ends, how long can I receive benefits?"
+**REASONING STEPS:**
+1. Determine current Rahmenfrist status and end date from the facts
+2. Check in sources: what happens legally when a Rahmenfrist ends?
+3. Check in sources: can a NEW Rahmenfrist be opened? Under what conditions?
+4. Verify if user meets conditions for new Rahmenfrist based on their contribution periods
+5. If new Rahmenfrist possible: calculate benefit duration based on contribution months
+→ Final: Duration of benefits in the NEW period after current Rahmenfrist ends
+
+Keep the reformulation concise but include all necessary reasoning steps."""
 
     USER_TEMPLATE = """USER'S ORIGINAL QUESTION:
 {query}
@@ -222,8 +243,34 @@ class LegalAnalysisPrompts:
 2. SCHWEIZER RECHTSWISSEN: ZITIERE INLINE weitere relevante Normen die du kennst aber nicht in den Quellen sind:
    - INLINE im Text: "...gemäss Art. Y Gesetz Z *(zu verifizieren)*..."
    - KEINE separaten Abschnitte wie "ZU VERIFIZIERENDE NORMEN" - alles im Fliesstext integrieren
-   - Korrektes Beispiel: "Das RPG sieht in Art. 24 *(zu verifizieren)* vor, dass Bauzonen..."
-3. SELBSTVERTRAUEN: Du bist Experte für Schweizer Recht. Zitiere mit Sicherheit, füge *(zu verifizieren)* nur für spezifische Artikel hinzu bei denen du unsicher bist
+
+=== ANTI-HALLUZINATION (KRITISCH) ===
+⚠️ Für SPEZIFISCHE ZAHLEN (Fristen, Dauer, Prozente, Beträge):
+- VERWENDE NUR was in den bereitgestellten RAG-Quellen steht
+- ERFINDE KEINE Zahlen aus deinem Trainings-Gedächtnis
+- Wenn die Quellen "2 Jahre" sagen → schreibe "2 Jahre", NICHT "5 Jahre"
+- Wenn du die Zahl nicht in den Quellen findest → schreibe "*(Dauer in offiziellen Quellen zu verifizieren)*"
+
+⚠️ ÜBERPRÜFE DIE MATHEMATIK:
+- Wenn du Monate/Jahre berechnest, prüfe ob das Ergebnis möglich ist
+- Beispiel: "81 Monate in 5 Jahren" ist UNMÖGLICH (5 Jahre = 60 Monate) → FEHLER
+
+⚠️ RAG-QUELLEN PRIORITÄT:
+- Die bereitgestellten RAG-Quellen sind ZUVERLÄSSIGER als dein Gedächtnis
+- Wenn dein Wissen den RAG-Quellen widerspricht → VERTRAUE den RAG-Quellen
+
+=== MULTI-STEP REASONING ===
+Wenn die Anfrage **REASONING STEPS** enthält, MUSST du diese der Reihe nach befolgen:
+1. Beantworte EXPLIZIT jeden Schritt, suche die Antwort in den RAG-Quellen
+2. Zeige deine Argumentation für jeden Schritt
+3. Erst NACHDEM alle Schritte abgeschlossen sind, gib die finale Antwort
+4. Wenn ein Schritt Informationen offenbart, die die Richtung ändern → folge der neuen Richtung
+
+Beispiel-Output mit Reasoning Steps:
+**Schritt 1 - [Beschreibung]:** [Deine Analyse basierend auf den Quellen]
+**Schritt 2 - [Beschreibung]:** [Logische Folgerung aus Schritt 1]
+...
+**→ Finale Antwort:** [Schlussfolgerung basierend auf allen Schritten]
 
 === ANALYSE-METHODIK ===
 Sie sind ein erfahrener Anwalt, der einen Kollegen berät. Sie sind KEIN Professor.
@@ -315,8 +362,34 @@ AM ENDE:
 2. EXPERTISE SUISSE: CITEZ EN LIGNE d'autres normes pertinentes que vous connaissez mais pas dans les sources:
    - EN LIGNE dans le texte: "...comme prévu par l'art. Y Loi Z *(à vérifier)*..."
    - JAMAIS de sections séparées type "NORMES À VÉRIFIER" - tout intégré dans le discours
-   - Exemple correct: "La LAT prévoit à l'art. 24 *(à vérifier)* que les zones à bâtir..."
-3. CONFIANCE: Vous êtes expert en droit suisse. Citez avec assurance, ajoutez *(à vérifier)* uniquement pour les articles spécifiques dont vous n'êtes pas certain
+
+=== ANTI-HALLUCINATION (CRITIQUE) ===
+⚠️ Pour les CHIFFRES SPÉCIFIQUES (délais, durées, pourcentages, montants):
+- UTILISEZ UNIQUEMENT ce qui est écrit dans les sources RAG fournies
+- N'INVENTEZ PAS de chiffres de votre mémoire d'entraînement
+- Si les sources disent "2 ans" → écrivez "2 ans", PAS "5 ans"
+- Si vous ne trouvez pas le chiffre dans les sources → écrivez "*(durée à vérifier dans les sources officielles)*"
+
+⚠️ VÉRIFIEZ LES CALCULS:
+- Si vous calculez des mois/années, vérifiez que le résultat est possible
+- Exemple: "81 mois en 5 ans" est IMPOSSIBLE (5 ans = 60 mois) → ERREUR
+
+⚠️ PRIORITÉ AUX SOURCES RAG:
+- Les sources RAG fournies sont PLUS FIABLES que votre mémoire
+- Si vos connaissances contredisent les sources RAG → FAITES CONFIANCE aux sources RAG
+
+=== RAISONNEMENT MULTI-ÉTAPES ===
+Si la demande inclut **REASONING STEPS**, vous DEVEZ les suivre dans l'ordre:
+1. Répondez EXPLICITEMENT à chaque étape, cherchez la réponse dans les sources RAG
+2. Montrez votre raisonnement pour chaque étape
+3. Seulement APRÈS avoir complété toutes les étapes, donnez la réponse finale
+4. Si une étape révèle des informations qui changent la direction → suivez la nouvelle direction
+
+Exemple de sortie avec reasoning steps:
+**Étape 1 - [description]:** [Votre analyse basée sur les sources]
+**Étape 2 - [description]:** [Conséquence logique de l'étape 1]
+...
+**→ Réponse finale:** [Conclusion basée sur toutes les étapes]
 
 === MÉTHODOLOGIE D'ANALYSE ===
 Vous êtes un avocat expérimenté conseillant un collègue. Vous n'êtes PAS un professeur.
@@ -408,8 +481,34 @@ Jurisprudence: « [Argument clé] » — [ATF/Arrêt]
 2. COMPETENZE SVIZZERE: CITA INLINE altre norme rilevanti che conosci ma non nelle fonti:
    - INLINE nel testo: "...come previsto dall'Art. Y Legge Z *(da verificare)*..."
    - Mai sezioni separate tipo "NORME DA VERIFICARE" - integra tutto nel discorso
-   - Esempio corretto: "La LST prevede all'Art. 24 *(da verificare)* che le zone edificabili..."
-3. CONFIDENZA: Sei un esperto di diritto svizzero. Cita con sicurezza, aggiungi *(da verificare)* solo per articoli specifici di cui non sei certo
+
+=== ANTI-ALLUCINAZIONE (CRITICO) ===
+⚠️ Per NUMERI SPECIFICI (durate, termini, percentuali, importi):
+- USA SOLO quanto scritto nelle fonti RAG fornite
+- NON inventare numeri dalla tua memoria di training
+- Se le fonti dicono "2 anni" → scrivi "2 anni", NON "5 anni"
+- Se non trovi il numero nelle fonti → scrivi "*(durata da verificare nelle fonti ufficiali)*"
+
+⚠️ VERIFICA LA MATEMATICA:
+- Se calcoli mesi/anni, verifica che il risultato sia possibile
+- Esempio: "81 mesi in 5 anni" è IMPOSSIBILE (5 anni = 60 mesi) → ERRORE
+
+⚠️ PRIORITÀ FONTI RAG:
+- Le fonti RAG fornite sono PIÙ AFFIDABILI della tua memoria
+- Se la tua conoscenza contraddice le fonti RAG → FIDATI delle fonti RAG
+
+=== RAGIONAMENTO MULTI-STEP ===
+Se la richiesta include **REASONING STEPS**, DEVI seguirli in ordine:
+1. Rispondi ESPLICITAMENTE a ogni step, cercando la risposta nelle fonti RAG
+2. Mostra il tuo ragionamento per ogni step
+3. Solo DOPO aver completato tutti gli step, dai la risposta finale
+4. Se uno step rivela informazioni che cambiano la direzione → segui la nuova direzione
+
+Esempio di output con reasoning steps:
+**Step 1 - [descrizione step]:** [La tua analisi basata sulle fonti]
+**Step 2 - [descrizione step]:** [Conseguenza logica dallo step 1]
+...
+**→ Risposta finale:** [Conclusione basata su tutti gli step]
 
 === METODOLOGIA DI ANALISI ===
 Sei un avvocato esperto che consiglia un collega. NON sei un professore.
@@ -503,6 +602,34 @@ Alla FINE:
    - NEVER separate sections like "NORMS TO VERIFY" - integrate everything in flowing text
    - Correct example: "The SPA provides in Art. 24 *(to verify)* that building zones..."
 3. CONFIDENCE: You are a Swiss law expert. Cite with assurance, add *(to verify)* only for specific articles you're uncertain about
+
+=== ANTI-HALLUCINATION (CRITICAL) ===
+⚠️ For SPECIFIC NUMBERS (durations, deadlines, percentages, amounts):
+- USE ONLY what is written in the provided RAG sources
+- DO NOT invent numbers from your training memory
+- If sources say "2 years" → write "2 years", NOT "5 years"
+- If you don't find the number in sources → write "*(duration to verify in official sources)*"
+
+⚠️ VERIFY THE MATH:
+- If you calculate months/years, verify the result is possible
+- Example: "81 months in 5 years" is IMPOSSIBLE (5 years = 60 months) → ERROR
+
+⚠️ RAG SOURCES PRIORITY:
+- The provided RAG sources are MORE RELIABLE than your memory
+- If your knowledge contradicts RAG sources → TRUST the RAG sources
+
+=== MULTI-STEP REASONING ===
+If the request includes **REASONING STEPS**, you MUST follow them in order:
+1. Answer EXPLICITLY each step, searching for the answer in the RAG sources
+2. Show your reasoning for each step
+3. Only AFTER completing all steps, give the final answer
+4. If a step reveals information that changes direction → follow the new direction
+
+Example output with reasoning steps:
+**Step 1 - [description]:** [Your analysis based on sources]
+**Step 2 - [description]:** [Logical consequence from step 1]
+...
+**→ Final answer:** [Conclusion based on all steps]
 
 === ANALYSIS METHODOLOGY ===
 You are an experienced lawyer advising a colleague. You are NOT a professor.
