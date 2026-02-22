@@ -22,13 +22,16 @@ logger = logging.getLogger(__name__)
 # Legal domain expansion - related concepts that should be searched together
 # Key: trigger keywords, Value: additional search terms
 LEGAL_DOMAIN_EXPANSION = {
-    # Building permits need planning, landscape, water, environment
-    'edilizia': 'sviluppo territoriale pianificazione paesaggio protezione natura acque ambiente polizia costruzioni',
+    # Building permits need planning, landscape, water, environment + SPECIFIC TICINO LAWS
+    'edilizia': 'sviluppo territoriale pianificazione paesaggio protezione natura acque ambiente polizia costruzioni LE RLE LST RLST LGA RLGA RLCN legge edilizia regolamento gestione acque protezione conservazione natura paesaggio',
     'baubewilligung': 'raumplanung landschaft natur gewässer umwelt baupolizei entwicklung',
     'permis de construire': 'aménagement territoire paysage nature eaux environnement police constructions',
-    'licenza edilizia': 'sviluppo territoriale pianificazione paesaggio protezione natura acque ambiente',
-    'costruzione': 'pianificazione territorio paesaggio acque ambiente',
-    'costruire': 'pianificazione territorio paesaggio acque ambiente',
+    'licenza edilizia': 'sviluppo territoriale pianificazione paesaggio protezione natura acque ambiente LE RLE LST RLST LGA RLGA RLCN legge edilizia regolamento gestione acque conservazione natura paesaggio',
+    'costruzione': 'pianificazione territorio paesaggio acque ambiente LE RLE LST RLST LGA protezione conservazione natura',
+    'costruire': 'pianificazione territorio paesaggio acque ambiente LE RLE LST protezione conservazione natura',
+    # Ticino-specific triggers
+    'ticino': 'LE RLE LST RLST LGA RLGA RLCN legge edilizia sviluppo territoriale gestione acque protezione conservazione natura paesaggio',
+    'canton ticino': 'LE RLE LST RLST LGA RLGA RLCN legge edilizia sviluppo territoriale gestione acque protezione conservazione natura paesaggio',
     # Employment law needs social insurance, permits
     'arbeit': 'sozialversicherung arbeitsvertrag kündigung arbeitsbewilligung',
     'lavoro': 'assicurazione sociale contratto licenziamento permesso',
