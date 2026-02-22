@@ -683,14 +683,19 @@ class TriadSearch:
                 filters=filters
             )
 
+            # DEBUG: Log what Qdrant actually returned
+            logger.info(f"codex_laws: Qdrant returned {len(all_candidates)} raw candidates")
+            if all_candidates:
+                sample = all_candidates[0]
+                sr_name = sample.get('payload', {}).get('sr_name', 'NO_SR_NAME')
+                logger.info(f"codex_laws: Sample sr_name='{sr_name[:50]}...'")
+
             # Filter OUT ordinances by keyword in sr_name
             candidates = [
                 c for c in all_candidates
                 if not any(kw in c.get('payload', {}).get('sr_name', '') for kw in ORDINANCE_KEYWORDS)
             ]
             logger.info(f"codex_laws: {len(candidates)} law candidates after keyword filtering")
-
-            logger.info(f"codex_laws: Got {len(candidates)} law candidates")
 
             # Apply canton boosting
             if query_context and candidates:
@@ -763,14 +768,19 @@ class TriadSearch:
                 filters=filters
             )
 
+            # DEBUG: Log what Qdrant actually returned
+            logger.info(f"codex_ordinances: Qdrant returned {len(all_candidates)} raw candidates")
+            if all_candidates:
+                sample = all_candidates[0]
+                sr_name = sample.get('payload', {}).get('sr_name', 'NO_SR_NAME')
+                logger.info(f"codex_ordinances: Sample sr_name='{sr_name[:50]}...'")
+
             # Filter to ONLY ordinances by keyword in sr_name
             candidates = [
                 c for c in all_candidates
                 if any(kw in c.get('payload', {}).get('sr_name', '') for kw in ORDINANCE_KEYWORDS)
             ]
             logger.info(f"codex_ordinances: {len(candidates)} ordinance candidates after keyword filtering")
-
-            logger.info(f"codex_ordinances: Got {len(candidates)} ordinance candidates")
 
             # Apply canton boosting
             if query_context and candidates:
