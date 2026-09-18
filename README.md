@@ -347,8 +347,7 @@ Please run `make lint` and `make test-quick` before opening a pull request.
 
 **Branisa Milosavljevic**, data scientist with seven years in applied ML (Medical Insights, Enterprise Mobility,
 Kambi). KERBERUS was built in 2026 to apply the Duke LLMOps specialisation to a high-stakes domain end to end:
-retrieval, evaluation, security and deployment. Open to senior data science and AI engineering roles in Switzerland
-or remote.
+retrieval, evaluation, security and deployment.
 
 ## License
 
