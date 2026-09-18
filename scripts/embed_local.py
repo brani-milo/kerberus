@@ -480,11 +480,11 @@ Examples:
         print(f"  Codex embeddings: {data_dir / 'embeddings' / 'codex'}")
     if any(c in ["library", "federal"] for c in collections_to_process):
         print(f"  Library embeddings: {data_dir / 'embeddings' / 'library'}")
-    print(f"\nTo import to Qdrant:")
+    print("\nTo import to Qdrant:")
     if "codex" in collections_to_process:
-        print(f"  QDRANT_HOST=localhost python scripts/import_embeddings_local.py --collection codex")
+        print("  QDRANT_HOST=localhost python scripts/import_embeddings_local.py --collection codex")
     if any(c in ["library", "federal"] for c in collections_to_process):
-        print(f"  QDRANT_HOST=localhost python scripts/import_embeddings_local.py --collection library")
+        print("  QDRANT_HOST=localhost python scripts/import_embeddings_local.py --collection library")
 
 
 if __name__ == "__main__":

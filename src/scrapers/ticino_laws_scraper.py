@@ -95,7 +95,7 @@ class TicinoLawsScraper:
             resp = self.session.get(self.BASE_URL, timeout=30)
 
             if resp.status_code == 200:
-                soup = BeautifulSoup(resp.content, 'html.parser')
+                _ = BeautifulSoup(resp.content, 'html.parser')
 
                 # TODO: Parse the actual structure
                 # This is a placeholder that needs actual implementation
@@ -135,7 +135,7 @@ class TicinoLawsScraper:
             resp = self.session.get(url, timeout=30)
 
             if resp.status_code == 200:
-                soup = BeautifulSoup(resp.content, 'html.parser')
+                _ = BeautifulSoup(resp.content, 'html.parser')
 
                 # TODO: Extract actual law content
                 # This depends on the page structure

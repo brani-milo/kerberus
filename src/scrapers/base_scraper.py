@@ -133,7 +133,7 @@ class BaseScraper:
 
         print(f"\n🎉 {self.name} Complete!")
         print(f"{'='*50}")
-        print(f"📊 Summary:")
+        print("📊 Summary:")
         print(f"   New files downloaded: {self.stats['new_files']}")
         print(f"   Existing files (skipped): {self.stats['existing_files']}")
         print(f"   Errors: {self.stats['errors']}")

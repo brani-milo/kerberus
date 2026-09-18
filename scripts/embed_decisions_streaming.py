@@ -295,7 +295,7 @@ def process_court_streaming(
         if skipping:
             if json_file.name == skip_until:
                 skipping = False
-                logger.info(f"Found checkpoint, resuming...")
+                logger.info("Found checkpoint, resuming...")
             continue
 
         file_count += 1

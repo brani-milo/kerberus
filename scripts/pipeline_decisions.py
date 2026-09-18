@@ -386,7 +386,7 @@ def step_embed(
                     logger.error(f"Error loading {json_file}: {e}")
 
         if not documents:
-            print(f"    No documents loaded")
+            print("    No documents loaded")
             results[court] = {"embedded": 0}
             continue
 

@@ -107,8 +107,8 @@ class DocumentProcessor:
     def _check_dependencies(self):
         """Check that required libraries are available."""
         try:
-            import fitz  # pymupdf
-            self._has_pdf = True
+            import fitz  # noqa: F401  (pymupdf availability check)
+            self._has_pdf = bool(fitz)
         except ImportError:
             logger.warning("pymupdf not installed - PDF support disabled")
             self._has_pdf = False

@@ -83,7 +83,7 @@ Welcome to the document review system. I can help you extract structured informa
     await cl.Message(content=welcome).send()
     
     # Preset selection
-    settings = await cl.ChatSettings([
+    await cl.ChatSettings([
         Select(
             id="preset",
             label="Review Preset",

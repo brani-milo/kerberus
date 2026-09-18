@@ -55,7 +55,7 @@ class TicinoScraper(BaseScraper):
         print(f"\n🚀 {self.name}")
         print(f"📅 Year range: {start_year}-{end_year}")
         if not self.enable_incremental:
-            print(f"⚠️  Incremental updates DISABLED")
+            print("⚠️  Incremental updates DISABLED")
         if self.state["last_run"]:
             print(f"📌 Last run: {self.state['last_run']} ({self.state['last_file_count']} files)")
         print()

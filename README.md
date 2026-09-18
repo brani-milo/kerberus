@@ -237,7 +237,7 @@ same vectors throughout, no re-embedding:
 | + corrected parse written back into the index, neighbour expansion | **85 %** | **0.74** | ~28 s |
 
 The two remaining misses are missing data (an article absent from the local index, and the old-constitution parse),
-not ranking. The same set runs in CI on demand against a live index.
+not ranking. The GitHub Actions workflow is manual only (Actions tab → Run workflow): nothing runs on push.
 
 The work above started from a side-by-side review of answers against a commercial Swiss legal assistant, which
 flagged unrelated federal acts (agriculture, road traffic) being cited next to the correct cantonal tax rules. The

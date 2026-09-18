@@ -126,7 +126,7 @@ class FederalCourtScraper(BaseScraper):
 
         print(f"\n🎉 {self.name} Complete!")
         print(f"{'='*60}")
-        print(f"📊 Summary:")
+        print("📊 Summary:")
         print(f"   New files downloaded: {self.stats['new_files']}")
         print(f"   Existing files (skipped): {self.stats['existing_files']}")
         print(f"   Errors: {self.stats['errors']}")
@@ -191,7 +191,7 @@ class FederalCourtScraper(BaseScraper):
         print(f"   ✨ Total Historical Files: {len(master_list)}")
 
         if not master_list:
-            print(f"   ❌ No files found in logs")
+            print("   ❌ No files found in logs")
             return
 
         # Step 3: Filter by year (if specified)

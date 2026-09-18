@@ -34,12 +34,12 @@ def import_embeddings(collection: str, embeddings_dir: Path, fast_mode: bool = T
     if fast_mode:
         # Direct client connection for faster imports (wait=False)
         client = QdrantClient(host=qdrant_host, port=qdrant_port, timeout=300)
-        print(f"Connected! (fast mode - async writes)", flush=True)
+        print("Connected! (fast mode - async writes)", flush=True)
     else:
         # Use QdrantManager for safer imports (wait=True)
         qdrant = QdrantManager()
         qdrant.create_collection(collection, vector_size=1024)
-        print(f"Connected! (safe mode - sync writes)", flush=True)
+        print("Connected! (safe mode - sync writes)", flush=True)
 
     # Find all embedding files
     json_files = sorted(list(embeddings_dir.rglob("embeddings_*.json")))

@@ -1,9 +1,8 @@
 name: CI
 
+# Manual only: nothing runs on push or pull request. Start it from the Actions tab
+# ("Run workflow") when you want lint + tests, or the golden retrieval eval.
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
     inputs:
       run_retrieval_eval:

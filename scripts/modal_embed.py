@@ -243,10 +243,8 @@ class BGEEmbedder:
         # Determine input/output paths
         if collection == "codex":
             input_dir = Path("/data/parsed/fedlex")
-            pattern = "SR_*.json"
         else:
-            input_dir = Path("/data/parsed")
-            pattern = None  # Multiple subdirs
+            input_dir = Path("/data/parsed")  # multiple court subdirs
 
         output_dir = Path(f"/data/embeddings/{collection}")
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -271,7 +269,7 @@ class BGEEmbedder:
             # Ticino
             ticino_dir = input_dir / "ticino"
             if ticino_dir.exists():
-                print(f"\nProcessing Ticino...")
+                print("\nProcessing Ticino...")
                 ticino_stats = self._process_decisions(ticino_dir, output_dir / "ticino", batch_size, file_batch_size)
                 for k in stats:
                     stats[k] += ticino_stats.get(k, 0)

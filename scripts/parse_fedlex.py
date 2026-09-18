@@ -179,7 +179,7 @@ Examples:
 
                 # Count partial articles (chunks)
                 chunks = sum(1 for a in articles if a.get("is_partial"))
-                full_articles = len(articles) - chunks
+                _ = len(articles) - chunks
                 stats["total_chunks"] += chunks
 
                 stats["by_language"][lang]["files"] += 1

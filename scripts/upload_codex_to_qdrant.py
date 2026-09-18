@@ -103,7 +103,7 @@ def main():
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             print(f"   WARNING: Skipping corrupted file {filepath.name}")
             errors += 1
             continue
@@ -147,7 +147,7 @@ def main():
                     payload=payload
                 )
                 points.append(point)
-            except Exception as e:
+            except Exception:
                 errors += 1
                 continue
 

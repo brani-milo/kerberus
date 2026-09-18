@@ -560,7 +560,7 @@ class EncryptedChainlitDataLayer:
                 return None
 
             # Get message count
-            msg_count = session.query(EncryptedMessage).filter(
+            _ = session.query(EncryptedMessage).filter(
                 EncryptedMessage.thread_id == thread.id
             ).count()
 

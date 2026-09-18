@@ -108,7 +108,7 @@ class ReviewChatHandler:
         preset = get_preset(review.preset_id)
         
         # Get column names
-        columns = [f.display_name for f in preset.fields]
+        _ = [f.display_name for f in preset.fields]
         
         # Build table representation
         lines = [

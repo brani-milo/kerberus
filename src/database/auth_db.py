@@ -303,7 +303,7 @@ class AuthDB:
                 """),
                 {"token": session_token}
             )
-        logger.debug(f"Invalidated session")
+        logger.debug("Invalidated session")
 
     # ==========================================
     # Token Usage Tracking (Stub - Day 5)

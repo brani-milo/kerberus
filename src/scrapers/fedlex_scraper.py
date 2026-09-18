@@ -360,7 +360,7 @@ class FedlexScraper:
 
         if test_mode:
             sr_list = sr_list[:5]
-            print(f"⚠️  TEST MODE: Processing only first 5 laws")
+            print("⚠️  TEST MODE: Processing only first 5 laws")
             print()
 
         print(f"📥 Downloading {len(sr_list)} laws in {len(self.languages)} languages...")
