@@ -29,8 +29,9 @@ A lawyer asks a question in German, French or Italian. KERBERUS:
 Everything runs on infrastructure you control. Inference goes to [Infomaniak AI](https://www.infomaniak.com/en/hosting/ai-tools)
 in Switzerland; nothing leaves the country.
 
-> **Status:** working demo used by a small group of Swiss lawyers for evaluation. It is a portfolio and reference
-> project, not a product. See the [disclaimer](#disclaimer) before relying on any output.
+> **Status:** working demo, evaluated by a small group of Swiss lawyers. Maintained part-time and
+> **[looking for contributors](#looking-for-contributors)**. It is a reference project, not a product; see the
+> [disclaimer](#disclaimer) before relying on any output.
 
 ---
 
@@ -328,10 +329,31 @@ All settings are read through one [`Settings`](src/config.py) object; Docker sec
 
 ---
 
-## Contributing
+## Looking for contributors
 
-Issues and pull requests are welcome, in particular adaptations to other civil-law jurisdictions: swap the scrapers
-and the metadata schema, keep the pipeline.
+I built KERBERUS alone, in the months between two jobs, to turn what I had learned about LLM systems into something
+real. It worked: the project is a large part of why I moved from data science into AI engineering and why I have the
+job I have now. That job, and a life outside it, mean I can no longer carry it by myself.
+
+If you are trying to make the same move, this is a good place to do it. It is not a toy: real lawyers have tested it
+against a commercial product, the retrieval is measured, the security model is the kind you get asked about in
+interviews, and every part of a production RAG system is here to be improved. Nothing in it is finished.
+
+Things that would help most, roughly in order:
+
+- **Federal law embeddings.** The parsed Fedlex articles are in the repo pipeline; the codex vectors need to be
+  regenerated (a GPU afternoon with `scripts/modal_embed.py`, or `make embed-fedlex` on a good machine).
+- **The golden retrieval set.** 22 questions today. A hundred, reviewed by someone with legal training, would make
+  every future change measurable.
+- **Other cantons.** The Ticino scrapers and parsers are the template; Zurich, Bern, Vaud, Geneva each need their own.
+- **Case law quality.** Decision parsing (regeste, facts, reasoning) is heuristic; better section detection directly
+  improves the answers.
+- **A React front end** next to Chainlit, on top of the existing REST API.
+- **Another jurisdiction.** Germany, Austria and France have public legal databases; the pipeline is jurisdiction-agnostic.
+
+How to start: open an issue saying what you want to take, or pick something from the list above and send a pull
+request. Small, reviewed changes beat big rewrites. I will review, answer questions and merge; I will not be able to
+pair for hours, so a clear issue description goes a long way.
 
 ```bash
 make setup && make start && make db-init
@@ -345,9 +367,9 @@ Please run `make lint` and `make test-quick` before opening a pull request.
 
 ## About the author
 
-**Branisa Milosavljevic**, data scientist with seven years in applied ML (Medical Insights, Enterprise Mobility,
-Kambi). KERBERUS was built in 2026 to apply the Duke LLMOps specialisation to a high-stakes domain end to end:
-retrieval, evaluation, security and deployment.
+**Branisa Milosavljevic**, AI engineer, previously seven years in applied data science (Medical Insights, Enterprise
+Mobility, Kambi). KERBERUS was built in 2026 to apply the Duke LLMOps specialisation to a high-stakes domain end to
+end: retrieval, evaluation, security and deployment. It became the bridge from data science to AI engineering.
 
 ## License
 
