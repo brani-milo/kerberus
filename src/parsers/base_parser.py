@@ -34,7 +34,6 @@ class BaseParser(ABC):
         Parses the input file and returns a dictionary matching the schema.
         Must be implemented by subclasses.
         """
-        pass
 
     def _get_empty_schema(self) -> Dict[str, Any]:
         """

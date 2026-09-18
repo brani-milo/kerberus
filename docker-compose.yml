@@ -16,8 +16,11 @@ services:
       - QDRANT_PORT=6333
       - POSTGRES_HOST=postgres
       - REDIS_HOST=redis
+      - MODEL_SERVICE_URL=http://models:8080
+      - PARSED_DATA_DIR=/app/data/parsed
     volumes:
       - ./data/dossier:/app/data/dossier
+      - ./data/parsed:/app/data/parsed:ro
     depends_on:
       qdrant:
         condition: service_healthy
@@ -25,15 +28,83 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      models:
+        condition: service_healthy
     deploy:
       resources:
         limits:
           memory: 8G
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    # GPU: see docker-compose.gpu.yml (override file) - not enabled by default
+    restart: unless-stopped
+    networks:
+      - kerberus-network
+
+  # ===========================================
+  # KERBERUS REST API (same image, uvicorn instead of Chainlit)
+  # ===========================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kerberus-api
+    command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8001:8000"
+    env_file:
+      - .env
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+      - MODEL_SERVICE_URL=http://models:8080
+      - PARSED_DATA_DIR=/app/data/parsed
+    volumes:
+      - ./data/dossier:/app/data/dossier
+      - ./data/parsed:/app/data/parsed:ro
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      models:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+    restart: unless-stopped
+    networks:
+      - kerberus-network
+
+  # ===========================================
+  # Model service: BGE-M3 embeddings + BGE reranker (one copy for all replicas)
+  # ===========================================
+  models:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kerberus-models
+    command: ["uvicorn", "src.services.models_api:app", "--host", "0.0.0.0", "--port", "8080"]
+    ports:
+      - "8080:8080"
+    environment:
+      - EMBEDDER_DEVICE=cpu
+      - RERANKER_DEVICE=cpu
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
     restart: unless-stopped
     networks:
       - kerberus-network
@@ -57,10 +128,13 @@ services:
           memory: 4G
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:6333/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      # The qdrant image ships neither curl nor wget, so the old curl-based check
+      # always failed and `depends_on: service_healthy` never let the app start.
+      test: [ "CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - kerberus-network
 

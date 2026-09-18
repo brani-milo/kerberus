@@ -1,0 +1,304 @@
+{
+  "description": "Golden retrieval set. Each query lists sources that MUST appear in the top-k codex/library results. Laws are matched on (abbreviation, article); decisions on a normalised substring of decision_id. 'optional' items are reported but do not count towards the gate.",
+  "k": 25,
+  "queries": [
+    {
+      "id": "q01",
+      "query": "Unter welchen Voraussetzungen ist eine fristlose Kündigung des Arbeitsvertrags zulässig?",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "OR",
+          "article": "337"
+        },
+        {
+          "type": "decision",
+          "id_contains": "BGE 130 III 28",
+          "optional": true
+        },
+        {
+          "type": "decision",
+          "id_contains": "BGE 129 III 177",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "q02",
+      "query": "Kündigung zur Unzeit während Krankheit des Arbeitnehmers",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "OR",
+          "article": "336c"
+        }
+      ]
+    },
+    {
+      "id": "q03",
+      "query": "Muss der Arbeitgeber geleistete Überstunden entschädigen?",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "OR",
+          "article": "321c"
+        }
+      ]
+    },
+    {
+      "id": "q04",
+      "query": "Anspruch des Arbeitnehmers auf ein Arbeitszeugnis",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "OR",
+          "article": "330a"
+        }
+      ]
+    },
+    {
+      "id": "q05",
+      "query": "Gültigkeit eines Konkurrenzverbots nach Beendigung des Arbeitsverhältnisses",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "OR",
+          "article": "340"
+        },
+        {
+          "type": "law",
+          "abbreviation": "OR",
+          "article": "340a",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "q06",
+      "query": "Frist für die Mängelrüge beim Kaufvertrag",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "OR",
+          "article": "201"
+        }
+      ]
+    },
+    {
+      "id": "q07",
+      "query": "Allgemeine Verjährungsfrist für Forderungen",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "OR",
+          "article": "127"
+        },
+        {
+          "type": "law",
+          "abbreviation": "OR",
+          "article": "128",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "q08",
+      "query": "Haftung des Werkeigentümers für Schäden durch mangelhafte Gebäude",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "OR",
+          "article": "58"
+        }
+      ]
+    },
+    {
+      "id": "q09",
+      "query": "Anfechtung einer Mietzinserhöhung durch den Mieter",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "OR",
+          "article": "270b"
+        },
+        {
+          "type": "law",
+          "abbreviation": "OR",
+          "article": "269d",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "q10",
+      "query": "Résiliation immédiate du contrat de travail pour justes motifs",
+      "language": "fr",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "CO",
+          "article": "337"
+        }
+      ]
+    },
+    {
+      "id": "q11",
+      "query": "Délai de prescription ordinaire des créances",
+      "language": "fr",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "CO",
+          "article": "127"
+        }
+      ]
+    },
+    {
+      "id": "q12",
+      "query": "Licenziamento immediato del lavoratore per cause gravi",
+      "language": "it",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "CO",
+          "article": "337"
+        }
+      ]
+    },
+    {
+      "id": "q13",
+      "query": "Nachehelicher Unterhalt nach der Scheidung",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "ZGB",
+          "article": "125"
+        }
+      ]
+    },
+    {
+      "id": "q14",
+      "query": "Pflichtteil der Nachkommen im Erbrecht",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "ZGB",
+          "article": "471"
+        }
+      ]
+    },
+    {
+      "id": "q15",
+      "query": "Errichtung einer Beistandschaft für eine hilfsbedürftige Person",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "ZGB",
+          "article": "390"
+        }
+      ]
+    },
+    {
+      "id": "q16",
+      "query": "Rechtfertigende Notwehr im Strafrecht",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "StGB",
+          "article": "15"
+        }
+      ]
+    },
+    {
+      "id": "q17",
+      "query": "Strafbarkeit des Diebstahls",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "StGB",
+          "article": "139"
+        }
+      ]
+    },
+    {
+      "id": "q18",
+      "query": "Obligatorisches Schlichtungsverfahren vor dem Zivilprozess",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "ZPO",
+          "article": "197"
+        }
+      ]
+    },
+    {
+      "id": "q19",
+      "query": "Auskunftsrecht der betroffenen Person nach dem Datenschutzgesetz",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "DSG",
+          "article": "25"
+        }
+      ]
+    },
+    {
+      "id": "q20",
+      "query": "Rechtsgleichheit und Diskriminierungsverbot in der Bundesverfassung",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "BV",
+          "article": "8"
+        }
+      ]
+    },
+    {
+      "id": "q21",
+      "query": "Bewilligungspflicht für Bauten und Anlagen nach dem Raumplanungsgesetz",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "RPG",
+          "article": "22"
+        }
+      ]
+    },
+    {
+      "id": "q22",
+      "query": "Lohngleichheit zwischen Frau und Mann",
+      "language": "de",
+      "expected": [
+        {
+          "type": "law",
+          "abbreviation": "GlG",
+          "article": "3"
+        },
+        {
+          "type": "law",
+          "abbreviation": "BV",
+          "article": "8",
+          "optional": true
+        }
+      ]
+    }
+  ]
+}

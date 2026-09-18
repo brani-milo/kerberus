@@ -193,7 +193,6 @@ class ChatResponse(BaseModel):
 
 class StreamChatRequest(ChatRequest):
     """Streaming chat request (same as ChatRequest)."""
-    pass
 
 
 # ============================================

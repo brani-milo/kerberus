@@ -8,7 +8,6 @@ SECURITY NOTE: Dossier operations require the user's password because
 the encryption key is derived from it (zero-knowledge architecture).
 """
 import logging
-import uuid
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
@@ -17,6 +16,7 @@ from pydantic import BaseModel, Field
 from ..deps import get_current_user, get_db
 from ...database.auth_db import AuthDB, verify_password
 from ...search.dossier_search import DossierSearchService
+from ...security.dossier_keys import DossierKeyManager, DossierKeyError
 from ...review.document_processor import DocumentProcessor
 from ...security import get_pii_scrubber
 
@@ -125,11 +125,22 @@ def verify_user_password(user: Dict, password: str, db: AuthDB) -> bool:
     return verify_password(password, full_user["password_hash"])
 
 
-def get_dossier_service(user_id: str, password: str) -> DossierSearchService:
-    """Create dossier service for user."""
+def get_dossier_service(user_id: str, password: str, db: Optional[AuthDB] = None) -> DossierSearchService:
+    """
+    Open the user's dossier with its envelope key.
+
+    The password only unwraps the per-user data key (see
+    src/security/dossier_keys.py); the SQLCipher file itself is keyed with the
+    random DEK, so password changes no longer orphan the dossier.
+    """
+    key_manager = DossierKeyManager(db or get_db())
+    try:
+        raw_key = key_manager.unlock(user_id, password)
+    except DossierKeyError as e:
+        raise ValueError(str(e))
     return DossierSearchService(
         user_id=user_id,
-        user_password=password,
+        raw_key=raw_key,
         is_firm=False,
         firm_id=None
     )
@@ -231,7 +242,7 @@ async def upload_document(
 
     # Store in dossier
     try:
-        with get_dossier_service(user_id, password) as dossier:
+        with get_dossier_service(user_id, password, db) as dossier:
             doc_id = dossier.add_document(
                 title=doc_title,
                 content=text_content,
@@ -300,7 +311,7 @@ async def list_documents(
         )
 
     try:
-        with get_dossier_service(user_id, request.password) as dossier:
+        with get_dossier_service(user_id, request.password, db) as dossier:
             docs = dossier.list_documents(doc_type=doc_type, limit=limit)
 
             return [
@@ -344,7 +355,7 @@ async def get_document(
         )
 
     try:
-        with get_dossier_service(user_id, request.password) as dossier:
+        with get_dossier_service(user_id, request.password, db) as dossier:
             doc = dossier.get_document(doc_id)
 
             if not doc:
@@ -392,7 +403,7 @@ async def delete_document(
         )
 
     try:
-        with get_dossier_service(user_id, request.password) as dossier:
+        with get_dossier_service(user_id, request.password, db) as dossier:
             if not dossier.delete_document(doc_id):
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -430,7 +441,7 @@ async def search_dossier(
         )
 
     try:
-        with get_dossier_service(user_id, request.password) as dossier:
+        with get_dossier_service(user_id, request.password, db) as dossier:
             results = dossier.search(
                 query=request.query,
                 limit=request.limit,
@@ -479,7 +490,7 @@ async def get_dossier_stats(
         )
 
     try:
-        with get_dossier_service(user_id, request.password) as dossier:
+        with get_dossier_service(user_id, request.password, db) as dossier:
             stats = dossier.get_stats()
 
             return DossierStatsResponse(

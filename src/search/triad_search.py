@@ -9,10 +9,43 @@ Searches:
 
 import logging
 import asyncio
+import re
 from typing import List, Dict, Optional
 from src.embedder.bge_embedder import get_embedder
 from src.reranker.bge_reranker import get_reranker
 from src.search.mmr import apply_mmr, deduplicate_by_document
+from src.embedder.chunking import rerank_text
+from src.search.relevance import gate_by_relevance
+from src.search.neighbours import expand_with_neighbours, NEIGHBOUR_EXPANSION_ENABLED
+
+import os
+
+# A/B switches (defaults = new behaviour). Set to "false" to reproduce the old pipeline.
+RELEVANCE_GATE_ENABLED = os.getenv("RELEVANCE_GATE_ENABLED", "true").lower() == "true"
+EXPANDED_DENSE_QUERY = os.getenv("EXPANDED_DENSE_QUERY", "false").lower() == "true"
+
+
+def _gate(results, **kw):
+    """gate_by_relevance, or a no-op that still tags tiers when the gate is disabled."""
+    if RELEVANCE_GATE_ENABLED:
+        return gate_by_relevance(results, **kw)
+    max_keep = kw.get("max_keep")
+    kw.pop("group_key", None)
+    return (results[:max_keep] if max_keep else results), []
+
+# How many candidates the cross-encoder scores per lane. Each pair costs a full
+# forward pass over up to RERANKER_MAX_LENGTH tokens; on a CPU-only server these
+# numbers set the query latency (~1 min at the defaults). Raise them on a GPU.
+RERANK_CANDIDATES_LIBRARY = int(os.getenv("RERANK_CANDIDATES_LIBRARY", "50"))
+RERANK_CANDIDATES_LAWS = int(os.getenv("RERANK_CANDIDATES_LAWS", "40"))
+RERANK_CANDIDATES_ORDINANCES = int(os.getenv("RERANK_CANDIDATES_ORDINANCES", "25"))
+
+# Codex quotas are now CEILINGS, not targets: results below the relevance gate are dropped.
+MAX_LAWS = 15
+MAX_ORDINANCES = 10
+MIN_CODEX_SOURCES = 3
+MIN_DECISIONS = 2
+MAX_DECISIONS = 15   # the context builder uses at most 10; enriching more is wasted work
 from src.search.document_fetcher import enrich_results_with_full_content
 from src.database.vector_db import QdrantManager
 
@@ -86,6 +119,19 @@ SR_PREFIX_DOMAINS = {
 }
 
 
+def _plausible_codex_point(result: Dict) -> bool:
+    """
+    Skip codex points that cannot be real articles: those the corrected parse does
+    not know (payload.parse_missing, set by the backfill) and article numbers
+    beyond any Swiss act (the OR ends at Art. 1186; '197135' is a parser artefact).
+    """
+    p = result.get('payload', {})
+    if p.get('parse_missing'):
+        return False
+    num = re.sub(r'[^0-9]', '', str(p.get('article_number') or ''))
+    return not num or int(num) <= 1200
+
+
 def expand_query_with_related_domains(query: str) -> str:
     """
     Expand query with related legal domains to improve recall.
@@ -101,7 +147,8 @@ def expand_query_with_related_domains(query: str) -> str:
     expansions = []
 
     for trigger, related_terms in LEGAL_DOMAIN_EXPANSION.items():
-        if trigger in query_lower:
+        # Whole-word match only: 'ehe' must not fire on 'gehen', 'bau' not on 'Baum'
+        if re.search(r"(?<!\w)" + re.escape(trigger) + r"(?!\w)", query_lower):
             expansions.append(related_terms)
 
     if expansions:
@@ -494,8 +541,17 @@ class TriadSearch:
             # Building permits need planning law, water law, landscape protection, etc.
             expanded_query = expand_query_with_related_domains(query)
 
-            # Step 1: Generate query embedding (dense + sparse) from EXPANDED query
-            query_vectors = await self.embedder.encode_async(expanded_query)
+            # Step 1: Query embeddings. The DENSE vector comes from the user's query
+            # (semantic precision); only the SPARSE/lexical vector uses the expanded
+            # query, so abbreviation hints improve recall without dragging the
+            # semantic search towards unrelated domains.
+            if EXPANDED_DENSE_QUERY:  # old behaviour: everything from the expanded query
+                query_vectors = await self.embedder.encode_async(expanded_query)
+            else:
+                query_vectors = await self.embedder.encode_async(query)
+                if expanded_query != query:
+                    expanded_vectors = await self.embedder.encode_async(expanded_query)
+                    query_vectors = {"dense": query_vectors["dense"], "sparse": expanded_vectors["sparse"]}
 
             # Step 2: Search all lanes in parallel using hybrid search
             # CODEX: Two independent searches for laws (15) and ordinances (10)
@@ -509,8 +565,8 @@ class TriadSearch:
 
             laws_result, ordinances_result, library_result, dossier_result = await asyncio.gather(*lane_tasks)
 
-            # Combine laws + ordinances into single codex result
-            codex_result = self._merge_codex_results(laws_result, ordinances_result)
+            # Combine laws + ordinances: relevance gate against the best codex hit, then enrich
+            codex_result = await self._merge_codex_results(laws_result, ordinances_result)
 
             # Step 3: Determine overall confidence (minimum of all lanes)
             confidences = [codex_result['confidence'], library_result['confidence'], dossier_result['confidence']]
@@ -556,7 +612,7 @@ class TriadSearch:
                 del lane_filters['year_range']
 
             logger.info(f"Searching {collection_name} with query: {query[:50]}...")
-            candidates = self.vector_db.search_hybrid(
+            candidates = await asyncio.to_thread(self.vector_db.search_hybrid,
                 collection_name=collection_name,
                 dense_vector=query_vectors['dense'],
                 sparse_vector=query_vectors['sparse'],
@@ -586,7 +642,7 @@ class TriadSearch:
                 candidates=candidates,
                 query_embedding=query_vectors['dense'],
                 lambda_param=0.98,  # High lambda: relevance > diversity for legal research
-                top_k=100  # Increased from 50 to capture more diverse candidates
+                top_k=RERANK_CANDIDATES_LIBRARY
             )
 
             # Step 3: Rerank with confidence
@@ -594,22 +650,15 @@ class TriadSearch:
             rerank_docs = []
             for doc in diverse_results:
                 payload = doc.get('payload', {})
-                # Fallback chain: text_preview (primary) -> article_text -> text -> content.reasoning -> empty
-                text = (
-                    payload.get('text_preview') or
-                    payload.get('article_text') or
-                    payload.get('text') or
-                    (payload.get('content', {}).get('reasoning') if isinstance(payload.get('content'), dict) else None) or
-                    (payload.get('content', {}).get('regeste') if isinstance(payload.get('content'), dict) else None) or
-                    ''
-                )
+                # Score the FULL chunk text (falls back to preview for legacy points)
+                text = rerank_text(payload)
                 rerank_docs.append({'text': text, **doc})
 
             # Rerank all 100 candidates - deduplication will pick top 10 unique
-            reranked = self.reranker.rerank_with_confidence(
+            reranked = await asyncio.to_thread(self.reranker.rerank_with_confidence,
                 query=query,
                 documents=rerank_docs,
-                top_k=100  # Score all 100, dedupe picks 10 unique
+                top_k=RERANK_CANDIDATES_LIBRARY  # score them all; dedupe + gate decide what survives
             )
 
             # Step 4: Deduplicate - keep only best chunk per unique document
@@ -623,6 +672,12 @@ class TriadSearch:
                     top_k=dedupe_limit
                 )
                 logger.info(f"{collection_name}: {len(reranked['results'])} unique documents after deduplication")
+
+                # Step 4.1: Relevance gate - drop documents far below the best hit
+                if collection_name == 'library':
+                    reranked['results'], _ = _gate(
+                        reranked['results'], min_keep=MIN_DECISIONS, max_keep=min(top_k, MAX_DECISIONS), label='library'
+                    )
 
                 # Step 4.5: Filter to only active laws from Codex
                 # Uses discovered_laws.json whitelist to ensure only current laws are cited
@@ -638,7 +693,7 @@ class TriadSearch:
 
                 # Step 5: Fetch full document content for Qwen
                 # Chunks are for retrieval; Qwen needs full documents for accurate analysis
-                reranked['results'] = enrich_results_with_full_content(
+                reranked['results'] = await asyncio.to_thread(enrich_results_with_full_content,
                     reranked['results'],
                     collection=collection_name
                 )
@@ -676,7 +731,7 @@ class TriadSearch:
 
             # Search all codex, then filter to laws by keyword
             # NOTE: Pass filters=None for codex to avoid blocking all results
-            all_candidates = self.vector_db.search_hybrid(
+            all_candidates = await asyncio.to_thread(self.vector_db.search_hybrid,
                 collection_name='codex',
                 dense_vector=query_vectors['dense'],
                 sparse_vector=query_vectors['sparse'],
@@ -691,10 +746,11 @@ class TriadSearch:
                 sr_name = sample.get('payload', {}).get('sr_name', 'NO_SR_NAME')
                 logger.info(f"codex_laws: Sample sr_name='{sr_name[:50]}...'")
 
-            # Filter OUT ordinances by keyword in sr_name
+            # Filter OUT ordinances by keyword in sr_name, and parser artefacts
             candidates = [
                 c for c in all_candidates
                 if not any(kw in c.get('payload', {}).get('sr_name', '') for kw in ORDINANCE_KEYWORDS)
+                and _plausible_codex_point(c)
             ]
             logger.info(f"codex_laws: {len(candidates)} law candidates after keyword filtering")
 
@@ -711,27 +767,26 @@ class TriadSearch:
                 candidates=candidates,
                 query_embedding=query_vectors['dense'],
                 lambda_param=0.98,  # Almost no diversity penalty - relevance is king
-                top_k=80
+                top_k=RERANK_CANDIDATES_LAWS
             )
 
             # Rerank
             rerank_docs = []
             for doc in diverse_results:
                 payload = doc.get('payload', {})
-                text = payload.get('text_preview') or payload.get('article_text') or payload.get('text') or ''
+                text = rerank_text(payload)
                 rerank_docs.append({'text': text, **doc})
 
-            reranked = self.reranker.rerank_with_confidence(query=query, documents=rerank_docs, top_k=60)
+            reranked = await asyncio.to_thread(self.reranker.rerank_with_confidence,query=query, documents=rerank_docs, top_k=RERANK_CANDIDATES_LAWS)
 
             # Deduplicate to top_k unique laws
             if reranked.get('results'):
                 reranked['results'] = deduplicate_by_document(reranked['results'], top_k=top_k)
                 reranked['results'] = filter_to_active_laws(reranked['results'])
                 reranked['results'] = correct_abbreviations(reranked['results'])
-                # Mark as laws
+                # Mark as laws (enrichment happens after the relevance gate in _merge_codex_results)
                 for r in reranked['results']:
                     r['payload']['doc_type'] = 'law'
-                reranked['results'] = enrich_results_with_full_content(reranked['results'], collection='codex')
                 logger.info(f"codex_laws: {len(reranked['results'])} unique laws")
 
             return reranked
@@ -762,7 +817,7 @@ class TriadSearch:
 
             # Search all codex, then filter to ordinances by keyword
             # NOTE: Pass filters=None for codex - we use keyword filtering instead
-            all_candidates = self.vector_db.search_hybrid(
+            all_candidates = await asyncio.to_thread(self.vector_db.search_hybrid,
                 collection_name='codex',
                 dense_vector=query_vectors['dense'],
                 sparse_vector=query_vectors['sparse'],
@@ -777,10 +832,11 @@ class TriadSearch:
                 sr_name = sample.get('payload', {}).get('sr_name', 'NO_SR_NAME')
                 logger.info(f"codex_ordinances: Sample sr_name='{sr_name[:50]}...'")
 
-            # Filter to ONLY ordinances by keyword in sr_name
+            # Filter to ONLY ordinances by keyword in sr_name, and drop parser artefacts
             candidates = [
                 c for c in all_candidates
                 if any(kw in c.get('payload', {}).get('sr_name', '') for kw in ORDINANCE_KEYWORDS)
+                and _plausible_codex_point(c)
             ]
             logger.info(f"codex_ordinances: {len(candidates)} ordinance candidates after keyword filtering")
 
@@ -796,27 +852,26 @@ class TriadSearch:
                 candidates=candidates,
                 query_embedding=query_vectors['dense'],
                 lambda_param=0.98,  # High lambda: relevance > diversity for legal research
-                top_k=40
+                top_k=RERANK_CANDIDATES_ORDINANCES
             )
 
             # Rerank
             rerank_docs = []
             for doc in diverse_results:
                 payload = doc.get('payload', {})
-                text = payload.get('text_preview') or payload.get('article_text') or payload.get('text') or ''
+                text = rerank_text(payload)
                 rerank_docs.append({'text': text, **doc})
 
-            reranked = self.reranker.rerank_with_confidence(query=query, documents=rerank_docs, top_k=40)
+            reranked = await asyncio.to_thread(self.reranker.rerank_with_confidence,query=query, documents=rerank_docs, top_k=RERANK_CANDIDATES_ORDINANCES)
 
             # Deduplicate to top_k unique ordinances
             if reranked.get('results'):
                 reranked['results'] = deduplicate_by_document(reranked['results'], top_k=top_k)
                 reranked['results'] = filter_to_active_laws(reranked['results'])
                 reranked['results'] = correct_abbreviations(reranked['results'])
-                # Mark as ordinances
+                # Mark as ordinances (enrichment happens after the relevance gate in _merge_codex_results)
                 for r in reranked['results']:
                     r['payload']['doc_type'] = 'ordinance'
-                reranked['results'] = enrich_results_with_full_content(reranked['results'], collection='codex')
                 logger.info(f"codex_ordinances: {len(reranked['results'])} unique ordinances")
 
             return reranked
@@ -825,17 +880,32 @@ class TriadSearch:
             logger.error(f"Ordinance search failed: {e}", exc_info=True)
             return {'results': [], 'confidence': 'NONE', 'message': 'Error searching ordinances'}
 
-    def _merge_codex_results(self, laws_result: Dict, ordinances_result: Dict) -> Dict:
+    async def _merge_codex_results(self, laws_result: Dict, ordinances_result: Dict) -> Dict:
         """
-        Merge laws and ordinances results into single codex result.
+        Merge laws and ordinances into one codex result.
 
-        Laws come first, then ordinances.
+        Both lists are gated against the SAME reference (the best codex score),
+        so an ordinance lane whose best hit is unrelated does not contribute
+        "its" top results. Full texts are fetched only for what survives.
         """
         laws = laws_result.get('results', [])
         ordinances = ordinances_result.get('results', [])
 
+        all_scores = [float(r.get('base_score', r.get('final_score', 0)) or 0) for r in laws + ordinances]
+        top = max(all_scores) if all_scores else None
+
+        same_law = lambda r: r.get('payload', {}).get('sr_number')
+        laws, _ = _gate(laws, min_keep=MIN_CODEX_SOURCES, max_keep=MAX_LAWS, top_reference=top, label='laws', group_key=same_law)
+        ordinances, _ = _gate(ordinances, min_keep=0, max_keep=MAX_ORDINANCES, top_reference=top, label='ordinances')
+
+        # Adjacent articles of the best law hits (document store lookup, no vector search)
+        if NEIGHBOUR_EXPANSION_ENABLED and laws:
+            laws = await asyncio.to_thread(expand_with_neighbours, laws)
+
         combined = laws + ordinances
-        logger.info(f"Codex merged: {len(laws)} laws + {len(ordinances)} ordinances = {len(combined)} total")
+        if combined:
+            combined = await asyncio.to_thread(enrich_results_with_full_content, combined, collection='codex')
+        logger.info(f"Codex merged: {len(laws)} laws + {len(ordinances)} ordinances = {len(combined)} total (after relevance gate)")
 
         # Determine overall confidence (take best of both)
         confidence_order = ['NONE', 'LOW', 'MEDIUM', 'HIGH']
@@ -887,7 +957,7 @@ class TriadSearch:
             all_results = []
             for col in collections_to_search:
                 try:
-                    results = self.vector_db.search_hybrid(
+                    results = await asyncio.to_thread(self.vector_db.search_hybrid,
                         collection_name=col,
                         dense_vector=query_vectors['dense'],
                         sparse_vector=query_vectors['sparse'],
@@ -924,20 +994,16 @@ class TriadSearch:
             rerank_docs = []
             for doc in diverse_results:
                 payload = doc.get('payload', {})
-                text = (
-                    payload.get('text_preview') or
-                    payload.get('text') or
-                    payload.get('content') or
-                    payload.get('article_text') or
-                    ''
-                )
+                # Dossier chunks keep their text encrypted in SQLCipher, so only the
+                # preview is available here (rerank_text falls back to it).
+                text = rerank_text(payload)
                 rerank_docs.append({'text': text, **doc})
 
             # Rerank all 100 candidates - deduplication will pick top 10 unique
-            reranked = self.reranker.rerank_with_confidence(
+            reranked = await asyncio.to_thread(self.reranker.rerank_with_confidence,
                 query=query,
                 documents=rerank_docs,
-                top_k=100  # Score all 100, dedupe picks 10 unique
+                top_k=RERANK_CANDIDATES_LIBRARY  # score them all; dedupe + gate decide what survives
             )
 
             # Deduplicate - keep only best chunk per unique document

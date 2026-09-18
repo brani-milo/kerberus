@@ -180,6 +180,10 @@ class InfomaniakClient:
     PRICING = {
         # Premium models
         "qwen3-235b-a22b-instruct": {"input": 0.70, "output": 2.20},
+        # Infomaniak product short names (what the API actually accepts)
+        "qwen3": {"input": 0.70, "output": 2.20},
+        "mistral24b": {"input": 0.10, "output": 0.30},
+        "mistral3": {"input": 0.10, "output": 0.30},
         "llama-4-maverick-17b-128e-instruct": {"input": 0.50, "output": 1.50},
         # Cheap models
         "mistral-small-3.2-24b-instruct-2506": {"input": 0.10, "output": 0.30},
@@ -199,7 +203,7 @@ class InfomaniakClient:
         self.product_id = product_id or os.getenv("INFOMANIAK_PRODUCT_ID")
 
         # Model defaults to analysis model from env
-        self.model = model or os.getenv("INFOMANIAK_ANALYSIS_MODEL", "qwen3-235b-a22b-instruct")
+        self.model = model or os.getenv("INFOMANIAK_ANALYSIS_MODEL", "qwen3")
 
         # Build base URL
         if self.product_id:

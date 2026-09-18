@@ -23,11 +23,8 @@ Usage:
 """
 
 import modal
-import json
-import os
 from pathlib import Path
-from typing import List, Dict, Optional
-from datetime import datetime
+from typing import List, Dict
 
 # Modal app definition
 app = modal.App("kerberus-embedder")
@@ -184,8 +181,6 @@ class BGEEmbedder:
         Args:
             court: Court identifier (e.g., 'CH_BGer', 'ticino', 'codex')
         """
-        import orjson
-        from tqdm import tqdm
 
         parsed_dir = Path("/data/parsed")
 
@@ -233,10 +228,7 @@ class BGEEmbedder:
         Reads from /data/parsed/{collection}/
         Writes to /data/embeddings/{collection}/
         """
-        import orjson
-        import tarfile
         import subprocess
-        from tqdm import tqdm
 
         # Extract tar archive if it exists and parsed dir doesn't
         tar_path = Path("/data/parsed.tar.gz")
@@ -369,7 +361,6 @@ class BGEEmbedder:
         """Process court decisions with resume capability."""
         import orjson
         from tqdm import tqdm
-        import re
 
         stats = {"processed": 0, "embedded": 0, "errors": 0, "files_written": 0, "skipped": 0}
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -583,7 +574,8 @@ class BGEEmbedder:
             "citations_cases": citations.get("cases", []) if isinstance(citations, dict) else [],
             "lower_court": metadata.get("lower_court"),
             "source": source,
-            "text_preview": text_preview
+            "text_preview": text_preview,
+            "text": text,  # full chunk text for reranking (see src/embedder/chunking.py)
         }
 
     def _load_processed_ids(self, output_dir: Path) -> tuple:

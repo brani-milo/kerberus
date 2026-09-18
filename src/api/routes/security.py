@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from ..deps import get_current_user
-from ...security import get_pii_scrubber, PIIEntity
+from ...security import get_pii_scrubber
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/security", tags=["Security"])

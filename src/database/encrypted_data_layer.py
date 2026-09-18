@@ -20,17 +20,13 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any
-from contextlib import contextmanager
 
 from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.backends import default_backend
 import base64
 
 from sqlalchemy import create_engine, Column, String, Text, DateTime, Boolean, Integer, ForeignKey, Index
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import UUID
 
 logger = logging.getLogger(__name__)
 
@@ -238,23 +234,10 @@ class EncryptedChainlitDataLayer:
         logger.info("Encrypted conversation data layer initialized")
 
     def _build_database_url(self) -> str:
-        """Build database URL from environment variables."""
-        host = os.getenv("POSTGRES_HOST", "localhost")
-        port = os.getenv("POSTGRES_PORT", "5432")
-        db = os.getenv("POSTGRES_DB", "kerberus")
-        user = os.getenv("POSTGRES_USER", "kerberus_user")
+        """PostgreSQL DSN from Settings (POSTGRES_* env vars / Docker secrets)."""
+        from ..config import get_settings
+        return get_settings().postgres_dsn
 
-        # Password from file or env
-        password_file = os.getenv("POSTGRES_PASSWORD_FILE")
-        if password_file and os.path.exists(password_file):
-            with open(password_file, 'r') as f:
-                password = f.read().strip()
-        else:
-            password = os.getenv("POSTGRES_PASSWORD", "")
-
-        return f"postgresql://{user}:{password}@{host}:{port}/{db}"
-
-    @contextmanager
     def _session(self):
         """Context manager for database sessions."""
         session = self._Session()

@@ -8,8 +8,7 @@ Exports review data to Excel with:
 """
 
 import logging
-from typing import Dict, List, Any, Optional
-from pathlib import Path
+from typing import Optional
 from io import BytesIO
 from datetime import datetime
 
@@ -33,7 +32,6 @@ class ExcelExporter:
     def _check_dependencies(self):
         """Check that openpyxl is available."""
         try:
-            import openpyxl
             self._has_openpyxl = True
         except ImportError:
             logger.warning("openpyxl not installed - Excel export disabled")

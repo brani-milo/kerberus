@@ -15,6 +15,7 @@ import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import asyncio
+import threading
 from typing import List, Optional, Dict
 from functools import lru_cache
 import torch
@@ -59,6 +60,8 @@ class BGEEmbedder:
         self.use_fp16 = use_fp16 if self.device != "cpu" else False
         self._model = None
         self._lock = asyncio.Lock()
+        # Model/tokenizer are not thread-safe; encode calls may come from worker threads
+        self._model_lock = threading.Lock()
 
         logger.info(f"Initializing BGE-M3 Embedder (device={self.device}, fp16={self.use_fp16})")
         self._load_model()
@@ -119,13 +122,14 @@ class BGEEmbedder:
                 )
 
             # Generate embedding (pass as single string for consistent API)
-            embeddings = self._model.encode(
-                text,
-                max_length=self.max_length,
-                return_dense=True,
-                return_sparse=True,
-                return_colbert_vecs=False
-            )
+            with self._model_lock:
+                embeddings = self._model.encode(
+                    text,
+                    max_length=self.max_length,
+                    return_dense=True,
+                    return_sparse=True,
+                    return_colbert_vecs=False
+                )
 
             # Extract dense embedding
             dense_embedding = embeddings['dense_vecs']
@@ -174,13 +178,14 @@ class BGEEmbedder:
                 batch = texts[i:i + batch_size]
 
                 # Generate embeddings for batch
-                embeddings = self._model.encode(
-                    batch,
-                    max_length=self.max_length,
-                    return_dense=True,
-                    return_sparse=True,
-                    return_colbert_vecs=False
-                )
+                with self._model_lock:
+                    embeddings = self._model.encode(
+                        batch,
+                        max_length=self.max_length,
+                        return_dense=True,
+                        return_sparse=True,
+                        return_colbert_vecs=False
+                    )
 
                 # Extract dense embeddings
                 dense_embeddings = embeddings['dense_vecs']
@@ -266,6 +271,12 @@ def get_embedder(device: Optional[str] = None) -> BGEEmbedder:
     """
     global _embedder_instance
     if _embedder_instance is None:
-        selected_device = device or get_best_device()
-        _embedder_instance = BGEEmbedder(device=selected_device)
+        from ..config import get_settings
+        settings = get_settings()
+        if settings.model_service_url:
+            from .remote import RemoteEmbedder
+            _embedder_instance = RemoteEmbedder(settings.model_service_url, timeout=settings.model_service_timeout)
+        else:
+            selected_device = device or settings.embedder_device or get_best_device()
+            _embedder_instance = BGEEmbedder(device=selected_device)
     return _embedder_instance

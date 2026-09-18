@@ -7,8 +7,8 @@ Handles parsing of PDF and DOCX files, extracting text with page references.
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass, field
+from typing import Dict, List, Any, Optional
+from dataclasses import dataclass
 import hashlib
 
 logger = logging.getLogger(__name__)
@@ -114,7 +114,6 @@ class DocumentProcessor:
             self._has_pdf = False
             
         try:
-            import docx
             self._has_docx = True
         except ImportError:
             logger.warning("python-docx not installed - DOCX support disabled")

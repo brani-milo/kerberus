@@ -7,8 +7,17 @@ This module provides common test fixtures for:
 - Sample legal documents
 """
 import pytest
-import os
 from pathlib import Path
+
+import os
+
+# Tests never touch real infrastructure: no model warm-up, no document store,
+# unreachable ports so connection attempts fail fast.
+os.environ.setdefault("WARM_UP_MODELS", "false")
+os.environ.setdefault("DOCUMENT_STORE_ENABLED", "false")
+os.environ.setdefault("POSTGRES_PORT", "1")
+os.environ.setdefault("REDIS_PORT", "1")
+os.environ.setdefault("QDRANT_PORT", "1")
 
 # Add src to Python path for imports
 import sys

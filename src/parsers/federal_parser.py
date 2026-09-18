@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Dict, Any, Union
 import fitz  # pymupdf
 from bs4 import BeautifulSoup
-from collections import Counter
 
 from src.parsers.base_parser import BaseParser
 from src.parsers.metadata_extractor import MetadataExtractor

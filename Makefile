@@ -4,7 +4,7 @@
 # Quick start: make setup && make start
 # ============================================
 
-.PHONY: setup start stop restart logs test clean init-dossier scrape-ticino scrape-ticino-full scrape-ticino-test scrape-federal scrape-federal-test scrape-fedlex scrape-fedlex-test build-abbrev-registry parse-federal parse-ticino parse-ticino-test parse-fedlex parse-fedlex-test embed-fedlex embed-fedlex-test embed-decisions embed-decisions-test embed-all embed-status api api-prod chainlit help
+.PHONY: setup start start-gpu stop load-documents backfill-chunk-text models eval-retrieval restart logs test clean init-dossier scrape-ticino scrape-ticino-full scrape-ticino-test scrape-federal scrape-federal-test scrape-fedlex scrape-fedlex-test build-abbrev-registry parse-federal parse-ticino parse-ticino-test parse-fedlex parse-fedlex-test embed-fedlex embed-fedlex-test embed-decisions embed-decisions-test embed-all embed-status api api-prod chainlit help
 
 # ============================================
 # SETUP & INSTALLATION
@@ -79,7 +79,7 @@ test-quick: ## Run tests without coverage
 
 test-sqlcipher: ## Test SQLCipher encryption
 	@echo "Testing SQLCipher encryption..."
-	. venv/bin/activate && python scripts/test_encryption.py
+	. venv/bin/activate && python scripts/experiments/test_encryption.py
 
 # ============================================
 # DATABASE MANAGEMENT
@@ -185,6 +185,12 @@ embed-all: embed-fedlex embed-decisions ## Embed all parsed data
 embed-status: ## Show embedding statistics
 	. venv/bin/activate && python scripts/embed_status.py
 
+load-documents: ## Load parsed decisions + laws into the PostgreSQL document store
+	. venv/bin/activate && python scripts/load_document_store.py
+
+backfill-chunk-text: ## Write full chunk text into existing Qdrant library points (no re-embedding)
+	. venv/bin/activate && python scripts/backfill_chunk_text.py
+
 # ============================================
 # CLEANUP
 # ============================================
@@ -220,15 +226,22 @@ api: ## Start FastAPI server (development mode)
 	@echo "API available at http://localhost:8000"
 	@echo "Docs at http://localhost:8000/docs"
 
+models: ## Start the model service (BGE-M3 + reranker) on :8080
+	. venv/bin/activate && uvicorn src.services.models_api:app --host 0.0.0.0 --port 8080
+
+eval-retrieval: ## Run the golden retrieval set against the live index (gate: 70% recall)
+	. venv/bin/activate && python scripts/eval_retrieval.py --min-recall 0.7
+
 api-prod: ## Start FastAPI server (production mode)
 	@echo "Starting KERBERUS API (production)..."
 	. venv/bin/activate && uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 4
 
-chainlit: ## Start KERBERUS UI (Search + Review modes)
+chainlit: ## Start KERBERUS UI (uses the root .chainlit/ config, same as Docker)
 	@echo "Starting KERBERUS Chainlit frontend..."
-	@echo "  - Search Mode: /search (legal queries)"
-	@echo "  - Review Mode: /review (document extraction)"
-	. venv/bin/activate && cd frontend && chainlit run app.py --port 8501
+	. venv/bin/activate && chainlit run frontend/app.py --port 8501
+
+start-gpu: ## Start all Docker services with NVIDIA GPU passthrough
+	docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
 
 # ============================================
 # DEVELOPMENT UTILITIES
@@ -237,8 +250,8 @@ chainlit: ## Start KERBERUS UI (Search + Review modes)
 format: ## Format code with black
 	. venv/bin/activate && black src/ tests/
 
-lint: ## Run linting checks
-	. venv/bin/activate && flake8 src/ tests/
+lint: ## Run linting checks (undefined names, unused imports)
+	. venv/bin/activate && python -m pyflakes src/ frontend/ tests/
 
 typecheck: ## Run type checking with mypy
 	. venv/bin/activate && mypy src/

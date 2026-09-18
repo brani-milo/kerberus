@@ -1,82 +1,85 @@
 # KERBERUS - Swiss Legal Intelligence Platform
 # Python Dependencies
+#
+# Pinned to the versions of the working development environment (Python 3.13).
+# Regenerate after upgrades with:  pip list --format=freeze  (keep this layout)
 
 # ============================================
 # API Framework
 # ============================================
-fastapi>=0.115.0
-uvicorn[standard]>=0.27.0
-email-validator>=2.1.0
+fastapi==0.128.0
+uvicorn[standard]==0.40.0
+email-validator==2.3.0
 
 # ============================================
 # UI Framework
 # ============================================
-chainlit>=1.0.0
+chainlit>=2.9,<3
 
 # ============================================
 # Configuration
 # ============================================
-python-dotenv>=1.0.0
-pydantic>=2.5.0
-pydantic-settings>=2.1.0
+python-dotenv==1.2.1
+pydantic==2.12.5
+pydantic-settings==2.12.0
 
 # ============================================
 # Vector Database & Embeddings
 # ============================================
-qdrant-client>=1.7.0
-FlagEmbedding==1.2.11
-transformers==4.44.0
-# torch - installed separately in Dockerfile (CPU-only version)
-safetensors>=0.4.0
-sentencepiece>=0.1.99
-accelerate==0.33.0
-peft>=0.10.0
+qdrant-client==1.16.2
+FlagEmbedding==1.3.5
+transformers==4.57.5
+# torch==2.9.1 - installed separately in the Dockerfile (CPU-only wheel index)
+safetensors==0.7.0
+sentencepiece==0.2.1
+accelerate==1.12.0
+peft==0.18.1
 
 # ============================================
 # Databases
 # ============================================
-redis>=5.0.0
-psycopg2-binary>=2.9.0
-sqlalchemy>=2.0.0
-alembic>=1.13.0
-sqlcipher3>=0.6.2
+redis==7.1.0
+psycopg2-binary==2.9.11
+sqlalchemy==2.0.45
+alembic==1.18.0
+sqlcipher3==0.6.2
 
 # ============================================
 # Security & Privacy
 # ============================================
-presidio-analyzer>=2.2.0
-presidio-anonymizer>=2.2.0
-spacy>=3.7.0
+presidio-analyzer==2.2.360
+presidio-anonymizer==2.2.360
+spacy==3.8.11
 # Note: Run after install: python -m spacy download de_core_news_sm && python -m spacy download en_core_web_sm
-cryptography>=41.0.0
-bcrypt>=4.1.0
-pyotp>=2.9.0
-PyJWT>=2.8.0
-qrcode[pil]>=7.4.0
+cryptography==44.0.3
+bcrypt==5.0.0
+pyotp==2.9.0
+PyJWT==2.10.1
+qrcode[pil]==8.2
 
 # ============================================
 # Web Scraping & Parsing
 # ============================================
-beautifulsoup4>=4.12.0
-requests>=2.31.0
-lxml>=4.9.0
-pymupdf>=1.23.0
-python-docx>=1.1.0
+beautifulsoup4==4.14.3
+requests==2.32.5
+lxml==5.4.0
+pymupdf==1.26.7
+python-docx==1.2.0
 
 # ============================================
 # Testing
 # ============================================
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-pytest-mock>=3.12.0
-pytest-cov>=4.1.0
+pytest==9.0.2
+pytest-asyncio==1.3.0
+pytest-mock==3.15.1
+pytest-cov==7.0.0
 
 # ============================================
 # Utilities
 # ============================================
-tenacity>=8.2.0
-tqdm>=4.66.0
-python-json-logger>=2.0.0
-tiktoken>=0.5.0
-openpyxl>=3.1.0
-httpx>=0.26.0
+tenacity==9.1.2
+tqdm==4.67.1
+python-json-logger==4.0.0
+tiktoken==0.12.0
+openpyxl==3.1.5
+httpx==0.28.1

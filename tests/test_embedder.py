@@ -1,7 +1,6 @@
 """Tests for BGE-M3 embedder with hybrid (dense + sparse) embeddings."""
 
 import pytest
-import asyncio
 from src.embedder.bge_embedder import BGEEmbedder
 
 

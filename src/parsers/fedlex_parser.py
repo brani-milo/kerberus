@@ -14,7 +14,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,15 @@ class FedlexParser:
         "de": r'^Art\.\s*(\d{1,4}[a-z]?(?:bis|ter|quater|quinquies)?)\s*$',
         "fr": r'^Art\.\s*(\d{1,4}[a-z]?(?:bis|ter|quater|quinquies)?)\s*$',
         "it": r'^Art\.\s*(\d{1,4}[a-z]?(?:bis|ter|quater|quinquies)?)\s*$'
+    }
+
+    # Start of the table of contents printed at the END of every Fedlex PDF. It lists
+    # "<marginal title>\nArt. N" for every article and used to be parsed as a second,
+    # heading-only copy of each article that overwrote the real one in the index.
+    TOC_MARKERS = {
+        "de": ["Inhaltsverzeichnis"],
+        "fr": ["Table des matières"],
+        "it": ["Indice"],
     }
 
     # Inline article pattern (Art. X Title on same line)
@@ -213,27 +222,108 @@ class FedlexParser:
 
             doc.close()
 
-            # Clean up text
-            full_text = self._clean_text(full_text)
-
-            # Extract law name
-            sr_name = self._extract_law_name(full_text, language)
-
-            # Classify law type
-            law_type = self._classify_law_type(sr_number)
-
-            # Parse hierarchical structure and articles
-            articles = self._parse_articles(
-                full_text, sr_number, sr_name, language, law_type, str(pdf_path)
-            )
-
+            articles = self.parse_text(full_text, sr_number, language, str(pdf_path))
             logger.info(f"Extracted {len(articles)} articles from {pdf_path.name}")
-
             return articles
 
         except Exception as e:
             logger.error(f"Failed to parse {pdf_path.name}: {e}")
             raise
+
+    def parse_text(self, full_text: str, sr_number: str, language: str, file_path: str = "") -> List[Dict]:
+        """
+        Parse already-extracted PDF text into articles (testable without PyMuPDF).
+
+        1. split off the trailing table of contents
+        2. parse articles from the body
+        3. attach marginal titles taken from the table of contents
+        4. drop duplicate ids, keeping the entry with the most text
+        """
+        full_text = self._clean_text(full_text)
+        body, toc = self._split_toc(full_text, language)
+
+        sr_name = self._extract_law_name(body, language)
+        law_type = self._classify_law_type(sr_number)
+        articles = self._parse_articles(body, sr_number, sr_name, language, law_type, file_path)
+
+        titles = self._parse_toc(toc, language) if toc else {}
+        if titles:
+            filled = restored = 0
+            for a in articles:
+                toc_title = titles.get(a.get("article_number"))
+                if not toc_title:
+                    continue
+                guessed = a.get("article_title")
+                if guessed and guessed != toc_title and not toc_title.startswith(guessed):
+                    # The line after "Art. N" was taken for a title, but single-paragraph
+                    # articles start their body there: put it back into the text.
+                    if a.get("paragraph_number") in (None, 1):
+                        a["article_text"] = f"{guessed}\n{a.get('article_text', '')}".strip()
+                    restored += 1
+                a["article_title"] = toc_title
+                filled += 1
+            logger.info(f"SR {sr_number} ({language}): {len(titles)} titles from table of contents, "
+                        f"{filled} articles titled, {restored} first lines restored")
+
+        return self._dedupe_articles(articles, sr_number, language)
+
+    def _split_toc(self, text: str, language: str) -> tuple:
+        """Return (body, toc). The TOC is the text after the LAST marker in the final 40% of the document."""
+        markers = self.TOC_MARKERS.get(language, []) + [m for lang, ms in self.TOC_MARKERS.items() if lang != language for m in ms]
+        best = -1
+        for marker in markers:
+            for m in re.finditer(r'^\s*' + re.escape(marker) + r'\s*$', text, re.MULTILINE):
+                best = max(best, m.start())
+        if best < 0 or best < len(text) * 0.6:
+            return text, ""
+        return text[:best], text[best:]
+
+    def _parse_toc(self, toc: str, language: str) -> Dict[str, str]:
+        """
+        Map article number -> marginal title from the table of contents, which lists
+        one or more heading lines followed by the 'Art. N' line they belong to.
+        """
+        art_re = self.ARTICLE_PATTERNS.get(language, self.ARTICLE_PATTERNS["de"])
+        noise = re.compile(r'^(\d+\s*/\s*\d+|\d{1,4}(\.\d+)*|\.{3,}.*|.*\.{4,}.*)$')
+        # Structural headings (Titel/Kapitel/Abschnitt ...) separate groups of articles;
+        # they are not marginal titles and reset the buffer.
+        structure = re.compile(r'\b(Teil|Titel|Kapitel|Abschnitt|Abteilung|Partie|Titre|Chapitre|Section|Parte|Titolo|Capitolo|Sezione)\b', re.IGNORECASE)
+        marginal = re.compile(r'^([a-z]|[IVXLC]+|\d+[a-z]?)\.\s')
+        titles: Dict[str, str] = {}
+        buffer: List[str] = []
+        for raw in toc.split('\n'):
+            line = raw.strip()
+            if not line or noise.match(line):
+                continue
+            m = re.match(art_re, line)
+            if m:
+                if buffer:
+                    titles.setdefault(m.group(1), " ".join(buffer[-2:]))
+                buffer = []
+                continue
+            if any(line == mk for ms in self.TOC_MARKERS.values() for mk in ms):
+                continue
+            if structure.search(line) and not marginal.match(line):
+                buffer = []
+                continue
+            buffer.append(re.sub(r'-\s+', '-', line))
+        return titles
+
+    def _dedupe_articles(self, articles: List[Dict], sr_number: str, language: str) -> List[Dict]:
+        """Keep one entry per id: the one with the most text (a TOC copy has a heading only)."""
+        best: Dict[str, Dict] = {}
+        order: List[str] = []
+        for a in articles:
+            key = a.get("id") or f"{a.get('article_number')}_{a.get('paragraph_number')}"
+            if key not in best:
+                order.append(key)
+                best[key] = a
+            elif len(a.get("article_text", "")) > len(best[key].get("article_text", "")):
+                best[key] = a
+        removed = len(articles) - len(best)
+        if removed:
+            logger.warning(f"SR {sr_number} ({language}): dropped {removed} duplicate article entries (table of contents)")
+        return [best[k] for k in order]
 
     def _clean_text(self, text: str) -> str:
         """Clean and normalize PDF text."""

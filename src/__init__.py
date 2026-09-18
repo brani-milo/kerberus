@@ -8,5 +8,5 @@ including database management, embedding generation, semantic search, and
 AI-powered document generation.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 __author__ = "KERBERUS Team"

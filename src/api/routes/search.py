@@ -4,30 +4,24 @@ Search Endpoints.
 Provides search functionality for laws and court decisions.
 Uses TriadSearch with Hybrid + MMR + Reranking.
 """
-import time
 import asyncio
+import time
 import logging
 from typing import Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from ..models import SearchRequest, SearchResponse, SearchResult, ErrorResponse
-from ..deps import get_current_user, check_rate_limit
-from ...search.triad_search import TriadSearch
+from ..deps import check_rate_limit
+from ...pipeline import get_query_service
+
+
+def get_triad_search():
+    """TriadSearch shared with the pipeline service (models load once)."""
+    return get_query_service().triad()
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/search", tags=["Search"])
-
-# Lazy-initialized search engine
-_triad_search: Optional[TriadSearch] = None
-
-
-def get_triad_search() -> TriadSearch:
-    """Get TriadSearch engine (Hybrid + MMR + Rerank)."""
-    global _triad_search
-    if _triad_search is None:
-        _triad_search = TriadSearch()
-    return _triad_search
 
 
 @router.post(
@@ -53,7 +47,7 @@ async def search(
     """
     start_time = time.time()
 
-    triad = get_triad_search()
+    triad = await asyncio.to_thread(get_triad_search)
 
     # Build filters
     filters = {}
@@ -138,7 +132,7 @@ async def search_laws(
     """
     start_time = time.time()
 
-    triad = get_triad_search()
+    triad = await asyncio.to_thread(get_triad_search)
 
     filters = {}
     if language:
@@ -200,7 +194,7 @@ async def search_decisions(
     """
     start_time = time.time()
 
-    triad = get_triad_search()
+    triad = await asyncio.to_thread(get_triad_search)
 
     filters = {}
     if language:

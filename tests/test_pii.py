@@ -9,15 +9,9 @@ Covers:
 - Scrubbing functionality
 - API endpoints
 """
-import pytest
-from unittest.mock import patch, MagicMock
 
 from src.security.pii_scrubber import (
     PIIScrubber,
-    PIIEntity,
-    SwissAHVRecognizer,
-    SwissPhoneRecognizer,
-    SwissIBANRecognizer,
     scrub_pii,
     detect_pii,
     has_pii,

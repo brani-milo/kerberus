@@ -3,23 +3,27 @@ Health Check Endpoints.
 
 Provides health status for the API and its dependencies.
 """
-import os
 import time
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 from qdrant_client import QdrantClient
 
 from ..models import HealthStatus, ServiceHealth
 from ..deps import get_db, get_redis_client
-from ...database.auth_db import AuthDB
+from ..version import API_VERSION as VERSION
+from ...config import get_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/health", tags=["Health"])
 
-# Version from environment or default
-VERSION = os.getenv("APP_VERSION", "0.2.2")
+
+def _qdrant_client() -> QdrantClient:
+    """Short-timeout Qdrant client for health probes (honours QDRANT_API_KEY)."""
+    s = get_settings()
+    return QdrantClient(host=s.qdrant_host, port=s.qdrant_port, api_key=s.qdrant_api_key or None, timeout=5)
 
 
 @router.get("", response_model=HealthStatus)
@@ -48,9 +52,7 @@ async def health_check():
     # Check Qdrant
     try:
         start = time.time()
-        host = os.getenv("QDRANT_HOST", "localhost")
-        port = int(os.getenv("QDRANT_PORT", "6333"))
-        client = QdrantClient(host=host, port=port, timeout=5)
+        client = _qdrant_client()
         collections = client.get_collections()
         latency = (time.time() - start) * 1000
         services["qdrant"] = f"healthy ({latency:.1f}ms, {len(collections.collections)} collections)"
@@ -107,7 +109,10 @@ async def readiness():
         return {"status": "ready"}
     except Exception as e:
         logger.error(f"Readiness check failed: {e}")
-        return {"status": "not ready", "error": str(e)}, 503
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not ready", "error": str(e)},
+        )
 
 
 @router.get("/detailed", response_model=dict)
@@ -142,10 +147,8 @@ async def detailed_health():
     # Qdrant
     try:
         start = time.time()
-        host = os.getenv("QDRANT_HOST", "localhost")
-        port = int(os.getenv("QDRANT_PORT", "6333"))
-        client = QdrantClient(host=host, port=port, timeout=5)
-        info = client.get_collections()
+        client = _qdrant_client()
+        client.get_collections()
         latency = (time.time() - start) * 1000
         checks.append(ServiceHealth(
             name="qdrant",

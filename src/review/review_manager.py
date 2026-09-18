@@ -10,10 +10,10 @@ import json
 import uuid
 from datetime import datetime
 from typing import Dict, List, Any, Optional
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from pathlib import Path
 
-from .presets import get_preset, ReviewPreset
+from .presets import get_preset
 from .schema_extractor import DocumentExtraction
 
 logger = logging.getLogger(__name__)

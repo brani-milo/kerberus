@@ -1,467 +1,375 @@
-# 🛡️ KERBERUS - Open Source Legal Intelligence for Switzerland
-
-> **Status:** 🚀 Production Ready | Demo available on request
-
-A production-grade AI legal assistant for Swiss lawyers, built with zero-knowledge encryption, multilingual support(DE/FR/IT) and full data sovereignty.
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-
----
 <div align="center">
-  <img src="assets/kerberus-logo.png" alt="KERBERUS - Sovereign AI Guard" width="300"/>
-  
-  <h3>Open Source Legal Intelligence for Switzerland</h3>
-  
-  <p>
-    <a href="https://opensource.org/licenses/MIT">
-      <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/>
-    </a>
-    <a href="https://www.python.org/downloads/">
-      <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+"/>
-    </a>
-  </p>
+  <img src="assets/kerberus-logo.png" alt="KERBERUS" width="220"/>
+
+  # KERBERUS
+
+  **Open-source legal research assistant for Swiss law (DE / FR / IT)**
+
+  Hybrid retrieval over federal laws and court decisions, a guarded three-model LLM pipeline,
+  encrypted client dossiers, and Swiss-hosted inference.
+
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+  [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
+  [![CI](https://img.shields.io/badge/tests-116%20passing-brightgreen.svg)](.github/workflows/ci.yml)
 </div>
-
-## 🎯 Why This Project?
-
-After my previous company closed in January 2026, I invested the transition period in building something meaningful: a production-grade legal AI assistant demonstrating end-to-end LLM application development.
-
-**Project Origin: Applied LLMOps**
-
-This project was built to rigorously apply the advanced concepts from the **LLMOps Specialization (Duke University)** to a real-world, high-stakes domain.
-
-Instead of a theoretical exercise, KERBERUS focuses on:
-1. **Production-Grade RAG**: Implementing hybrid search, rescording, and dynamic context management.
-2. **Sovereign AI Infrastructure**: Hosted on **Infomaniak** (Switzerland) to strictly avoid US CLOUD Act jurisdiction. Unlike US hyperscalers (AWS/Azure), this architecture ensures 100% compliance with Swiss Data Protection laws (nFADP) and GDPR by keeping compute and data physically within Switzerland.
-3. **End-to-End MLOps**: Automated ingestion pipelines, monitoring, and reproducible deployment.
-
-I chose to open-source this reference implementation because:
-- ✅ Developers building compliance AI can learn from a complete reference implementation
-- ✅ Showcases capabilities beyond typical take-home assignments or coursework
-- ✅ Adaptable to any civil law jurisdiction (Germany, Austria, France, etc.)
-- ✅ More valuable to my career than a minimally-viable commercial product
-
-**What makes this interesting:**
-- ✅ Processes **400,000+ judgments** across 4 jurisdictions (Federal, TI, BS, VD)
-- ✅ **Zero-knowledge encryption** - data stays in Switzerland and is always encrypted
-- ✅ **Production-grade architecture** - handles 50+ concurrent users with <5s P95 latency
-- ✅ **Validated by Swiss lawyers** - tested against commercial legal AI platforms
-- ✅ **Fully open source** - adapt for your jurisdiction or learn from the implementation
 
 ---
 
-## 🏗️ Architecture
+## What it does
 
-<div align="center">
-  <img src="assets/dataflow.png" alt="KERBERUS Dataflow Architecture" width="800"/>
-</div>
+A lawyer asks a question in German, French or Italian. KERBERUS:
 
-### **Core Components**
+1. scrubs personal data from the question (Swiss AHV, IBAN, phone numbers, names),
+2. checks it with a small guard model and rewrites it for retrieval,
+3. searches laws (Fedlex) and case law (Federal Supreme Court, Federal Administrative Court, cantonal courts) with
+   dense + lexical vectors, re-ranks with a cross-encoder and keeps only sources that are actually relevant,
+4. hands the **full text** of the surviving articles and decisions to a large model,
+5. returns a structured analysis with verbatim, dual-language citations, a consistency indicator and next steps.
 
-**Infrastructure:**
-- Docker Swarm orchestrated services (Qdrant, PostgreSQL, Redis)
-- **Auto GPU detection** (CUDA → MPS → CPU fallback)
-  - NVIDIA GPU: Full CUDA acceleration
-  - Apple Silicon: MPS backend for local development
-  - CPU: Automatic fallback when no GPU available
-- Production deployed on Infomaniak (Swiss sovereignty)
-- Docker Secrets for secure credential management
-- Nginx reverse proxy with Let's Encrypt SSL
+Everything runs on infrastructure you control. Inference goes to [Infomaniak AI](https://www.infomaniak.com/en/hosting/ai-tools)
+in Switzerland; nothing leaves the country.
 
-**Three-Stage LLM Pipeline:**
-```
-User Query → Mistral 1 (Guard) → Search → Mistral 2 (Reformulate) → Qwen (Analyze)
-```
-- **Stage 1: Guard & Enhance** - Security check + query optimization (Mistral)
-- **Stage 2: Search & Rerank** - Hybrid retrieval + full document fetch
-- **Stage 3: Reformulate** - Structure query for legal analysis (Mistral)
-- **Stage 4: Legal Analysis** - Full analysis with dual-language citations (Qwen)
-
-**LLM Providers (Swiss Data Sovereignty):**
-- **Infomaniak AI** - Primary LLM provider for all standard queries
-  - Qwen3-235B: Premium model for legal analysis
-  - Mistral-Small-3.2-24B: Cost-efficient model for guard & reformulation
-  - Swiss-hosted inference (no US CLOUD Act exposure)
-- **Swiss Safe Cloud** (Planned) - Web search augmented queries
-  - For queries requiring real-time web information
-  - Separate provider to maintain Swiss data sovereignty
-
-**Advanced RAG Pipeline:**
-- **BGE-M3 Hybrid Embeddings** - Dense (1024-dim semantic) + Sparse (lexical/BM25-like) with Reciprocal Rank Fusion (RRF)
-- **BGE-Reranker-v2-M3** - Cross-encoder precision ranking (processes query+document jointly for accurate relevance scoring)
-- **Recency weighting** - Recent precedents scored higher via normalized year scoring
-- **Authority weighting** - Supreme Court (BGE/ATF) cases prioritized
-- **Calibrated MMR** - λ=0.85 optimized diversity/relevance balance to preserve Cantonal decisions while removing duplicates
-- **Triad search** - Parallel search across laws (Codex), case law (Library), and user dossiers
-- **Deep Search Pipeline** - 250 candidates → MMR (20 diverse) → Rerank (score all) → Deduplicate (10 unique documents)
-- **Full document retrieval** - Chunks are for finding; Qwen receives complete decisions/laws (regeste, facts, reasoning, decision) for accurate legal analysis
-
-<div align="center">
-  <img src="assets/triad_search.png" alt="Triad Search Strategy" width="600"/>
-</div>
-
-### 💰 Cost & Context Optimization: The "Sliding Window"
-Standard RAG systems suffer from **"Context Poisoning"**: they blindly append new retrieved documents to the chat history.
-* **The Problem:** If a user asks about *Theft* (Turn 1) and then *Sick Leave* (Turn 2), a standard RAG keeps the "Theft" laws in the context window. The LLM gets confused by conflicting regulations and token costs double.
-* **The Kerberus Solution:** We decouple **Conversational Memory** from **Knowledge Retrieval**.
-
-**The Mechanism:**
-1.  **Chat History (Immutable):** We keep the full dialogue (`User: "Can I fire him?"`) so the LLM understands pronouns like "him" refer to the employee discussed in Turn 1.
-2.  **Reference Context (Ephemeral):** We **swap** the legal documents completely for every new turn.
-
-**Real-World Example:**
-```python
-# --- Turn 1: User asks "Can I fire an employee for stealing?" ---
-# Chat History: ["User: Fire for stealing?"]
-# Retrieved Context: [Art. 337 OR (Immediate Dismissal)]
-# Result: LLM answers regarding theft.
-
-# --- Turn 2: User asks "What if he is on sick leave?" ---
-# 1. We read History -> We know "he" = the employee from Turn 1.
-# 2. We SEARCH for "Sick Leave" laws.
-# 3. We SWAP the context:
-#    - REMOVE: [Art. 337 OR] (Theft rules are now irrelevant noise)
-#    - INSERT: [Art. 336c OR] (Protection against termination at untimely execution)
-
-# Result: High precision, zero token bloat, no conflicting legal contexts.
-
-**Data Ingestion:**
-- Incremental scraping with state management
-- Smart year-range detection (avoids re-downloading)
-- Rate limiting and retry logic
-- Ticino scraper: ~30,000 judgments (1990-present)
-- BGE/ATF scraper: ~150,000 published federal decisions
-- Fedlex scraper: Active federal laws and ordinances (OR, ZGB, StGB, etc.) — dynamically synchronized to purge repealed legislation
+> **Status:** working demo used by a small group of Swiss lawyers for evaluation. It is a portfolio and reference
+> project, not a product. See the [disclaimer](#disclaimer) before relying on any output.
 
 ---
 
-## 🔍 Technical Highlights
+## Quickstart
 
-### **Metadata-Driven Ranking**
+Requirements: Docker, Python 3.13, `libsqlcipher` (macOS: `brew install sqlcipher`), an Infomaniak AI API key
+(without one the pipeline runs in mock mode).
 
-Every judgment is enriched with structured metadata:
-```python
-{
-    "case_id": "BGE_140_III_348",
-    "year": 2014,
-    "court": "bundesgericht",
-    "source": "bge_archive",
-    "is_cornerstone": True,
-    "authority": "SUPREME_PUBLISHED",
-    "law_type": "civil",
-    "domain": "employment",
-    "outcome": "REJECTED",
-    "cites_cases": ["BGE_135_III_232", ...],
-    "cites_articles": ["Art. 337 OR", ...]
-}
-```
-
-### **Intelligent Reranking**
-```python
-final_score = base_rerank_score 
-              + (0.10 × recency_score)
-              + (0.10 × authority_boost)
-```
-
-This ensures recent, authoritative precedents surface first while maintaining semantic relevance.
-
----
-
-## 🚀 Current Status & Roadmap
-
-### **✅ Completed**
-- Production infrastructure (Docker, Qdrant, PostgreSQL, Redis)
-- **Hybrid Search Engine** (Dense + Sparse Retrieval) with Reciprocal Rank Fusion (RRF)
-- Multilingual BGE-M3 Embeddings (Dense 1024d + Sparse Lexical Weights)
-- Qdrant Vector Database population (Laws + Case Law)
-- Dynamic context swapping implementation
-- Triad search architecture
-- Ticino court scraper with incremental updates
-- BGE/ATF scraper (Federal Supreme Court published decisions)
-- Fedlex scraper (Swiss federal laws - OR, ZGB, StGB) with auto-repeal handling
-- Parsing Engine (PDF/HTML -> JSON)
-  - Metadata extraction (Judges, Dates, Outcomes)
-  - Legal citation linking (e.g. `Art. 337 OR` -> `SR 220`)
-  - Intelligent section splitting (Facts vs. Reasoning)
-- **Authentication System** (PostgreSQL-backed)
-  - User registration with bcrypt password hashing
-  - Session management with secure tokens
-  - Token usage tracking for billing
-- **Multi-Factor Authentication (MFA)**
-  - TOTP-based (compatible with Google Authenticator, Authy)
-  - QR code generation for easy setup
-  - Backup codes for account recovery
-- **Encrypted Dossier Storage** (SQLCipher)
-  - AES-256 encrypted user document storage
-  - Per-user isolated databases
-  - Integration with Qdrant for semantic search
-- **Chainlit Conversational Interface**
-  - Dual-collection search (Laws + Case Law)
-  - Multilingual mode toggle for cross-language queries
-  - Real-time search with filters (year, language, scope)
-
-<div align="center">
-  <img src="assets/chat.jpg" alt="Chainlit Chat Interface" width="800"/>
-</div>
-
-- **Three-Stage LLM Pipeline**
-  - Mistral 1: Guard & Enhance (security + query optimization)
-  - Mistral 2: Query Reformulator (structures request for Qwen)
-  - Qwen: Full Legal Analysis with dual-language citations
-  - Traffic light consistency indicator (CONSISTENT/MIXED/DIVERGENT)
-  - Links to Fedlex and BGer sources
-  - Risk assessment and practical guidance
-- **FastAPI REST API**
-  - Bearer token authentication
-  - Search endpoints (laws, decisions, combined)
-  - Chat endpoint with streaming support (SSE)
-  - Rate limiting (50/hour, 300/day)
-  - OpenAPI documentation at `/docs`
-- **Security Hardening**
-  - HTTP security headers (X-Frame-Options, CSP, X-Content-Type-Options, etc.)
-  - Proper session invalidation on logout
-  - Password change endpoint with session management
-  - Account lockout after failed login attempts (brute force protection)
-  - IP-based rate limiting for authentication endpoints
-- **PII Detection & Scrubbing** (Presidio-based)
-  - Swiss-specific recognizers (AHV numbers, Swiss phone/IBAN)
-  - Automatic query scrubbing before LLM processing
-  - API endpoints for PII checking and scrubbing
-  - Configurable entity types and confidence thresholds
-- **Dossier API** (Document Management)
-  - Upload documents (PDF, DOCX, TXT) to encrypted storage
-  - Automatic parsing, chunking, and embedding
-  - PII scrubbing before storage
-  - Hybrid search across user's documents
-- **Tabular Document Review** (New!)
-  - **Schema-Driven Extraction**: Automatically extracts fields from documents based on presets
-  - **Specialized Presets**:
-    - 📄 **Contract Review** (Term, Termination, Indemnity)
-    - 👔 **Employment Contracts** (Salary, Non-Compete, Benefits)
-    - 🔒 **NDA Review** (Confidentiality Period, Exclusions)
-    - 🔍 **Due Diligence** (Change of Control, Assignability)
-  - **Excel Export**: Download structured review data for offline analysis
-  - **Citation Tracking**: Every extracted value links back to source text
-  - **Review Chat**: Q&A across the entire document set
-
-## 🛠️ Usage
-
-### **Data Ingestion (Scraping)**
 ```bash
-# Federal Laws (Fedlex) - Syncs latest versions & deletes repealed ones
-make scrape-fedlex
-
-# Ticino Court Decisions
-make scrape-ticino        # Incremental update
-
-# Federal Court Decisions
-make scrape-federal
+git clone https://github.com/brani-milo/kerberus && cd kerberus
+make setup                      # venv + dependencies + .env from .env.example
+# edit .env: INFOMANIAK_PRODUCT_ID, INFOMANIAK_API_KEY, CHAINLIT_AUTH_SECRET, POSTGRES_PASSWORD
+make start                      # Qdrant, PostgreSQL, Redis, model service, UI and API (docker compose)
+make db-init                    # schema migrations + Qdrant collections
 ```
 
-### **Data Processing & Embedding**
-Transform raw data into searchable Hybrid Vectors:
+Then ingest some data (see [Data pipeline](#data-pipeline)) and open:
+
+| Service | URL |
+|---|---|
+| Chainlit UI | http://localhost:8000 |
+| REST API + OpenAPI docs | http://localhost:8001/docs |
+| Model service | http://localhost:8080/health |
+| Qdrant dashboard | http://localhost:6333/dashboard |
+
+For local development without Docker for the app itself: `make chainlit` (UI on :8501) or `make api` (API on :8000).
+Scripts run from your machine need `QDRANT_HOST=localhost POSTGRES_HOST=localhost` in front of them if `.env`
+uses the compose service names.
+
+---
+
+## Architecture
+
+<div align="center">
+  <img src="assets/dataflow.png" alt="Data flow" width="800"/>
+</div>
+
+### Query pipeline
+
+```
+question ─► PII scrub ─► Guard & Enhance ─► Triad search ─► Reformulate ─► Context ─► Analysis
+              Presidio     Mistral Small       Qdrant +        Mistral Small   full texts    Qwen3-235B
+                                               reranker
+```
+
+One implementation, [`src/pipeline/service.py`](src/pipeline/service.py), produces an event stream that both the
+Chainlit UI and the REST API consume. Authentication rules (lockout, MFA, password policy, key rotation) live in
+[`src/auth/service.py`](src/auth/service.py) for the same reason: every behaviour exists exactly once.
+
+**Stage 1 – Guard & Enhance.** Detects language and prompt injection, expands vague questions, flags follow-ups so
+the previous sources can be reused without a new search.
+
+**Stage 2 – Triad search** ([`src/search/triad_search.py`](src/search/triad_search.py)). Three lanes run in
+parallel: laws, decisions, and the user's encrypted dossier.
+
+| Step | Laws (Codex) | Decisions (Library) |
+|---|---|---|
+| Hybrid retrieval (dense + sparse, RRF) | 400 candidates | 500 candidates |
+| MMR (λ = 0.98, relevance normalised) | 80 | 100 |
+| Cross-encoder rerank on **full chunk text** | 60 | 100 |
+| Deduplicate | per article (paragraphs collapse) | per decision (best chunk) |
+| **Relevance gate** | ≤ 15 laws + ≤ 10 ordinances | ≤ 15 |
+| Full-text enrichment | article + law name + hierarchy | regeste, facts, reasoning, decision |
+
+The relevance gate is the piece that keeps unrelated law out of the prompt. The reranker returns raw logits;
+calibrated on Swiss legal text, on-point articles score around −6 … +3, tangential ones −6 … −8, unrelated ones
+below −10. Anything more than `RERANK_TOP_MARGIN` (7) logits below the best hit, or below `RERANK_MIN_LOGIT` (−9),
+is dropped; ordinances are gated against the best *law*; a lane whose best hit is itself weak contributes at most
+three `[relevance: low]` sources. Quotas are ceilings, never targets.
+
+The dense query vector is computed from the user's question alone. Domain expansion (e.g. *Baubewilligung* →
+RPG, NHG, GSchG) only feeds the lexical vector, so recall improves without dragging the semantic search into
+neighbouring fields.
+
+**Neighbour expansion.** For the best law hits, the articles immediately before and after are pulled from the
+document store and added as `[relevance: context]` sources. Articles on one topic sit together (OR 340 … 340c), and this
+recovers the ones first-stage retrieval missed, including articles whose vectors were built from an imperfect parse.
+
+**Stage 3 – Reformulate.** Restates the facts, dates and amounts from the question and the tasks requested.
+
+**Stage 4 – Context.** Every source is labelled with the law's name, its position in the systematic collection and a
+`[relevance: high|medium|low]` tag. Full decisions are budgeted per document and in total
+(`MAX_DECISION_CHARS`, `MAX_DECISIONS_CONTEXT_CHARS`), with the regeste always kept and reasoning prioritised.
+
+**Stage 5 – Analysis.** Qwen3-235B, streamed. The prompts (DE/FR/IT/EN) require verbatim quotes with the original
+text, forbid citing SR numbers that are not in the sources, tell the model to omit unrelated sources rather than
+mention them, and demand that a conclusion reuse the exact figures computed in earlier steps and state a calendar
+end date whenever a duration is calculated.
+
+### Conversation memory
+
+Chat history is kept across turns so pronouns resolve; the retrieved legal context is replaced on every new
+question. A follow-up ("what if he is on sick leave?") reuses the previous sources; a new topic gets a fresh search.
+Token cost stays flat over long conversations.
+
+### Storage
+
+| Store | Contents |
+|---|---|
+| **Qdrant** | `codex` (law articles) and `library` (decision chunks): dense 1024-d + sparse vectors, metadata, full chunk text |
+| **PostgreSQL** | users, sessions, usage, wrapped dossier keys, the **document store** (full decisions and laws keyed by id, citation and normalised aliases), encrypted conversation history |
+| **SQLCipher** | one AES-256 database per user for uploaded documents (envelope-encrypted, see below) |
+| **Redis** | rate limits, pending MFA secrets |
+
+The document store replaces per-request filesystem lookups. Load it with `make load-documents` after each parse
+run; if it is unreachable the app falls back to an in-memory index of the parsed JSON files.
+
+### Model service
+
+[`src/services/models_api.py`](src/services/models_api.py) hosts BGE-M3 and BGE-Reranker-v2-M3 once for all
+replicas (`MODEL_SERVICE_URL`). Without it, each process loads the models itself (CUDA → MPS → CPU auto-detect).
+Set `HF_HUB_OFFLINE=1` once the weights are cached so a stalled CDN connection cannot block start-up.
+
+### Security
+
+- **Envelope-encrypted dossiers.** Each user gets a random 256-bit data key; SQLCipher opens with it as a raw key.
+  The data key is wrapped with a PBKDF2-derived key from the password and stored in `dossier_keys`. Changing the
+  password re-wraps the key instead of orphaning the dossier; legacy password-keyed dossiers migrate on first unlock.
+- **Authentication.** bcrypt passwords, opaque session tokens in PostgreSQL, mandatory TOTP MFA with one-time backup
+  codes, lockout after five failed attempts, IP rate limits on login and registration. The TOTP secret never leaves
+  the server.
+- **PII scrubbing** (Presidio + Swiss recognisers) before any text reaches a model; unsupported languages fall back to
+  the German analyser so pattern recognisers still run.
+- **Transport and headers.** CSP, frame and content-type protections on the API; HTML from retrieved documents is
+  escaped, model output is stripped of active HTML before rendering.
+- **Secrets** via environment or Docker secrets files (`*_FILE`); never in the repository or the image.
+- Self-registration through the UI can be switched off with `ALLOW_SELF_REGISTRATION=false`.
+
+---
+
+## Data pipeline
+
+```
+scrape ──► parse ──► load document store ──► embed ──► (backfill for older indexes)
+```
+
 ```bash
-# 1. Parse raw files to JSON
+make scrape-fedlex          # federal laws and ordinances (repealed acts are purged)
+make scrape-federal         # Federal Supreme / Administrative / Criminal Court decisions
+make scrape-ticino          # Ticino cantonal courts, incremental
+
+make parse-fedlex           # PDF -> articles with hierarchy metadata
 make parse-federal
 make parse-ticino
 
-# 2. Generate Hybrid Embeddings (Dense + Sparse)
-make embed-fedlex    # Embed Laws
-make embed-decisions # Embed Court Decisions (Federal & Ticino)
+make load-documents         # parsed JSON -> PostgreSQL document store
+make embed-fedlex           # -> Qdrant "codex"
+make embed-decisions        # -> Qdrant "library"
+make backfill-chunk-text    # add full text to points embedded before v0.3 (no re-embedding)
 ```
 
-### **Search**
-Test the Hybrid Search Engine:
+**Where the vectors live.** The decision embeddings (Federal Supreme Court, Federal Administrative Court, Ticino) and
+the Ticino cantonal laws were produced on Modal and are stored in the Modal volume `kerberus-data` under
+`/embeddings/…`, next to `parsed.tar.gz` (every parsed decision) and `parsed_fedlex.tar.gz`. They are imported, not
+recomputed:
+
 ```bash
-python scripts/test_search.py
+modal volume get kerberus-data /embeddings/library/ticino data/embeddings/library/ticino
+QDRANT_HOST=localhost python scripts/import_embeddings_local.py --collection library --embeddings-dir data/embeddings/library/ticino
 ```
 
-### **REST API**
+Federal law (codex) vectors are not on the volume; they are produced from the parsed Fedlex articles with
+`make embed-fedlex` (a small job compared with decisions).
+
+Embedding on a GPU is optional: `scripts/modal_embed.py` runs the same code on Modal and
+`scripts/import_embeddings_local.py` imports the result (see [`docs/`](docs/)).
+
+The Fedlex parser drops the table of contents printed at the end of every PDF (it used to be parsed as a second,
+heading-only copy of each article that overwrote the real one, corrupting ~40% of the OR) and uses it to attach the
+marginal title to every article. After upgrading the parser, an existing index is repaired **without re-embedding**:
+
+```bash
+make parse-fedlex && make load-documents
+python scripts/backfill_chunk_text.py --collection codex --overwrite   # corrected article texts + titles
+python scripts/backfill_chunk_text.py --collection library             # full chunk text for decisions
+```
+
+The vectors of articles that were embedded from a heading stay imperfect; neighbour expansion recovers most of them
+through the adjacent articles that were embedded correctly.
+
+Court decisions come from the public archives collected by [Entscheidsuche.ch](https://entscheidsuche.ch/); laws from
+[Fedlex](https://www.fedlex.admin.ch/). Chunking rules are shared by every ingestion path
+([`src/embedder/chunking.py`](src/embedder/chunking.py)), so a chunk can always be recomputed from its source.
+
+---
+
+## Evaluation
+
+Retrieval is measured, not tuned by feel. [`tests/eval/golden_queries.json`](tests/eval/golden_queries.json) holds
+22 questions in three languages with the articles that must appear in the top 25.
+
+```bash
+make eval-retrieval                                    # recall@25, MRR, per-query misses; exits 1 below 70 % recall
+python scripts/eval_retrieval.py --ids q01,q02,q05     # a subset, e.g. what a partial index can answer
+```
+
+Measured on a small local index (OR and the Federal Constitution only, so 13 of the 22 questions are answerable),
+same vectors throughout, no re-embedding:
+
+| Pipeline | Recall@25 | MRR | Latency / query (laptop CPU) |
+|---|---|---|---|
+| Before: fixed quotas, one article per law, reranking on 200-char previews | 15 % | 0.09 | ~60 s |
+| Relevance gate, per-article dedupe, normalised MMR, titles in reranker input | 77 % | 0.65 | ~30 s |
+| + corrected parse written back into the index, neighbour expansion | **85 %** | **0.74** | ~28 s |
+
+The two remaining misses are missing data (an article absent from the local index, and the old-constitution parse),
+not ranking. The same set runs in CI on demand against a live index.
+
+The work above started from a side-by-side review of answers against a commercial Swiss legal assistant, which
+flagged unrelated federal acts (agriculture, road traffic) being cited next to the correct cantonal tax rules. The
+root causes turned out to be the table-of-contents parser bug and the one-article-per-law deduplication rather than
+the language model.
+
+Unit and API tests (`pytest tests/`, 116 tests) run against in-memory doubles for PostgreSQL, Qdrant and the LLMs;
+only the embedder and reranker tests download weights.
+
+---
+
+## REST API
+
+Start with `make api` and open `/docs`. All endpoints except `/health*` need a bearer token.
+
+| Area | Endpoints |
+|---|---|
+| Auth | `POST /auth/register`, `/auth/login`, `/auth/logout`, `/auth/logout/all`, `/auth/password/change`, `GET /auth/me`, `/auth/usage` |
+| MFA | `POST /auth/mfa/setup`, `/auth/mfa/verify`, `DELETE /auth/mfa` |
+| Search | `POST /search`, `GET /search/laws`, `GET /search/decisions` |
+| Analysis | `POST /chat` (JSON), `POST /chat/stream` (Server-Sent Events, one JSON object per pipeline event) |
+| Dossier | `POST /dossier/documents`, `/dossier/documents/list`, `/dossier/documents/{id}`, `DELETE /dossier/documents/{id}`, `POST /dossier/search`, `/dossier/stats` |
+| PII | `POST /security/pii/check`, `/security/pii/scrub` |
+| Health | `GET /health`, `/health/live`, `/health/ready`, `/health/detailed` |
+
+Rate limits default to 50 requests/hour and 300/day per user (Redis-backed, atomic).
 
 <div align="center">
-  <img src="assets/fastapi.png" alt="FastAPI Documentation" width="800"/>
+  <img src="assets/fastapi.png" alt="OpenAPI documentation" width="800"/>
 </div>
 
-Start the FastAPI server:
-```bash
-# Development (with hot reload)
-make api
+---
 
-# Production
-make api-prod
-```
+## Configuration
 
-API endpoints available at `http://localhost:8000`:
-- `POST /auth/register` - Register new user
-- `POST /auth/login` - Get access token
-- `POST /auth/logout` - Invalidate session
-- `POST /auth/password/change` - Change password
-- `POST /auth/mfa/setup` - Initialize MFA setup
-- `POST /search` - Search laws and decisions
-- `POST /chat` - Full legal analysis
-- `POST /chat/stream` - Streaming analysis (SSE)
-- `POST /security/pii/check` - Check text for PII
-- `POST /security/pii/scrub` - Scrub PII from text
-- `POST /dossier/documents` - Upload document to encrypted dossier
-- `POST /dossier/documents/list` - List user's documents
-- `POST /dossier/documents/{id}` - Get document details
-- `DELETE /dossier/documents/{id}` - Delete document
-- `POST /dossier/search` - Search user's dossier
-- `POST /dossier/stats` - Get dossier statistics
-- `GET /docs` - OpenAPI documentation
+Copy `.env.example` to `.env`. The important knobs:
 
-## 🎥 Demo
+| Variable | Purpose |
+|---|---|
+| `INFOMANIAK_PRODUCT_ID`, `INFOMANIAK_API_KEY` | Swiss-hosted inference (`USE_MOCK_AI=true` to run without) |
+| `INFOMANIAK_GUARD_MODEL`, `INFOMANIAK_ANALYSIS_MODEL` | Infomaniak product model names: `mistral24b`, `mistral3`, `qwen3` (long names are rejected with HTTP 422) |
+| `POSTGRES_*`, `QDRANT_*`, `REDIS_*` | storage; `QDRANT_API_KEY` is honoured when set |
+| `MODEL_SERVICE_URL` | use the shared model service instead of loading weights per process |
+| `RELEVANCE_GATE_ENABLED`, `RERANK_TOP_MARGIN`, `RERANK_MIN_LOGIT` | retrieval precision (set the gate to `false` to reproduce the pre-v0.3 quotas) |
+| `MAX_DECISION_CHARS`, `MAX_DECISIONS_CONTEXT_CHARS`, `MAX_LAWS_CONTEXT_CHARS` | context budgets |
+| `DOCUMENT_STORE_ENABLED`, `PARSED_DATA_DIR` | full-text source and its file fallback |
+| `ALLOW_SELF_REGISTRATION`, `RATE_LIMIT_*`, `ENABLE_PII_SCRUBBING` | access and safety switches |
+| `HF_HUB_OFFLINE`, `TRANSFORMERS_OFFLINE` | skip hub checks once models are cached |
 
-**Demo available on request** - Contact for access to the live instance (limited to selected Swiss lawyers for testing).
-
-### **✅ Recently Completed**
-- Production deployment on Infomaniak (Docker Swarm)
-- HTTPS with Let's Encrypt SSL certificates
-- Docker Secrets for secure credential management
-- Nginx reverse proxy configuration
-- Full data ingestion pipeline (scrape → parse → embed)
-
-### **🔜 Next**
-- **Web Search Integration** - Qwen with web search via Swiss Safe Cloud for real-time legal updates
-- Firm management (shared dossiers, role-based access)
-- Token usage billing and rate limiting
-
-### **🔮 Future**
-- Citation graph analysis (identify landmark cases)
-- Multi-canton expansion
-- React frontend
-- Adaptation guides for other countries
+All settings are read through one [`Settings`](src/config.py) object; Docker secrets are picked up from
+`*_FILE` variables.
 
 ---
 
-## 🌍 International Applicability
+## Deployment
 
-While built for Switzerland, KERBERUS can be adapted to any civil law jurisdiction with public legal databases:
-
-- 🇩🇪 Germany (bundesgerichtshof.de)
-- 🇫🇷 France (legifrance.gouv.fr)
-- 🇸🇪 Sweden (domstol.se)
-- 🇦🇹 Austria (ris.bka.gv.at)
-- 🇧🇪 Belgium (juridat.be)
-- 🇳🇱 Netherlands (rechtspraak.nl)
-
-Requires replacing scrapers and adapting metadata schema for local court hierarchies.
+- `docker-compose.yml` runs everything locally (add `-f docker-compose.gpu.yml` for an NVIDIA GPU).
+- `docker-compose.prod.yml` targets Docker Swarm with external secrets and no published database ports.
+- The image is CPU-only (Python 3.13, torch 2.9, SQLCipher); build context excludes data, logs, tests and every
+  `.env` file.
+- Schema changes go through Alembic (`alembic upgrade head`; the baseline is idempotent on databases created before
+  migrations existed).
 
 ---
 
-## 📚 Tech Stack
+## Roadmap
+
+- Web-search-augmented answers for recent legal developments (Swiss-hosted)
+- Firm dossiers: shared data keys, roles
+- More cantons; citation graph to surface landmark decisions
+- A React front end alongside Chainlit
+
+---
+
+## Tech stack
 
 | Component | Technology |
-|-----------|-----------|
-| **Embeddings** | BGE-M3 (1024d Dense + Sparse Lexical, auto GPU detection) |
-| **Reranking** | BGE-Reranker-v2-M3 |
-| **Vector DB** | Qdrant (Hybrid Search with RRF) |
-| **Auth DB** | PostgreSQL 15 |
-| **Encrypted Storage** | SQLCipher (AES-256) |
-| **Authentication** | bcrypt + TOTP (MFA) |
-| **LLM Provider** | Infomaniak AI (Swiss data sovereignty) |
-| **LLM Models** | Qwen3-235B (analysis) & Mistral-Small-3.2-24B (guard/reformulate) |
-| **Web Search** | Swiss Safe Cloud (planned - web-augmented queries) |
-| **Deployment** | Docker + Infomaniak |
-| **Frontend** | Chainlit (conversational UI) |
-| **Testing** | pytest (68+ tests covering security, PII, dossier, embedder, reranker) |
+|---|---|
+| Embeddings | BGE-M3 (1024-d dense + sparse lexical weights) |
+| Reranking | BGE-Reranker-v2-M3 cross-encoder with recency boost |
+| Vector store | Qdrant, hybrid search with reciprocal rank fusion |
+| Relational store | PostgreSQL 15 (auth, usage, document store, encrypted conversations) |
+| Encrypted storage | SQLCipher, AES-256, envelope keys |
+| LLMs | Qwen3-235B (analysis), Mistral-Small-3.2-24B (guard, reformulation) via Infomaniak AI |
+| PII | Microsoft Presidio + spaCy, Swiss recognisers |
+| API / UI | FastAPI, Chainlit |
+| Ops | Docker Compose / Swarm, Alembic, GitHub Actions, pytest |
 
 ---
 
-## 🔐 Security & Privacy
+## Contributing
 
-- **Zero-knowledge encryption** - SQLCipher AES-256, keys derived from user password (we cannot decrypt without user)
-- **MFA authentication** - TOTP-based (Google Authenticator compatible) + backup codes
-- **Session security** - Cryptographically secure tokens, automatic expiration, proper logout invalidation
-- **Brute force protection** - Account lockout after failed attempts, IP-based rate limiting
-- **Security headers** - X-Frame-Options, CSP, X-Content-Type-Options, Referrer-Policy
-- **PII detection & scrubbing** - Presidio-based with Swiss-specific recognizers (AHV, phone, IBAN)
-- **Swiss data sovereignty** - All infrastructure hosted in Switzerland (Infomaniak)
-- **GDPR compliant** - By design, no third-party tracking
-- **Password security** - bcrypt with 12 rounds, secure password verification, self-service password change
+Issues and pull requests are welcome, in particular adaptations to other civil-law jurisdictions: swap the scrapers
+and the metadata schema, keep the pipeline.
 
----
-
-## 🤝 Contributing
-
-Contributions welcome! Whether you want to:
-- Adapt for your country
-- Report bugs
-- Suggest features
-- Improve documentation
 ```bash
-git clone https://github.com/brani-milo/kerberus
-cd kerberus
-make setup
-make scrape-ticino-test  # Test with 1993 only
+make setup && make start && make db-init
+make scrape-ticino-test          # one year of Ticino decisions
+make test-quick
 ```
 
----
-
-## 💼 About the Author
-
-I'm **Branisa Milosavljevic**, a Data Scientist with **7+ years** driving business growth through AI/ML at companies like Medical Insights (Basel), Enterprise Mobility (Zurich), and Kambi (Stockholm).
-
-**This project demonstrates:**
-- LLMops application development (RAG, embeddings, reranking)
-- Production system design (Docker, Qdrant, PostgreSQL, Redis)
-- MLOps maturity (incremental scraping, monitoring, deployment)
-- Security engineering (zero-knowledge, encryption, PII detection)
-- Swiss market expertise (FINMA compliance, data sovereignty)
-
-**Looking for:**
-- (Senior) Data Scientist roles (Switzerland or Full Remote)
-- AI Engineer positions (product-focused, end-to-end ownership)
-- AI Transformation Lead or Consultant (organizational change, AI adoption strategy)
+Please run `make lint` and `make test-quick` before opening a pull request.
 
 ---
 
-## 📄 License
+## About the author
 
-MIT License - See [LICENSE](LICENSE)
+**Branisa Milosavljevic**, data scientist with seven years in applied ML (Medical Insights, Enterprise Mobility,
+Kambi). KERBERUS was built in 2026 to apply the Duke LLMOps specialisation to a high-stakes domain end to end:
+retrieval, evaluation, security and deployment. Open to senior data science and AI engineering roles in Switzerland
+or remote.
 
-**TL;DR:** Free to use, modify, and commercialize without restriction.
+## License
 
-**If this helped your project:** Please consider citing or linking back to this repo. It helps others discover the work and supports the open-source community.
+MIT, see [LICENSE](LICENSE). If this project helps yours, a link back is appreciated:
+
 ```bibtex
 @software{milosavljevic2026kerberus,
   author = {Milosavljevic, Branisa},
-  title = {KERBERUS: Swiss Legal AI Assistant},
-  year = {2026},
-  url = {https://github.com/brani-milo/kerberus}
+  title  = {KERBERUS: Swiss Legal AI Assistant},
+  year   = {2026},
+  url    = {https://github.com/brani-milo/kerberus}
 }
 ```
 
----
+## Acknowledgments
 
-## 🙏 Acknowledgments
+**[Entscheidsuche.ch](https://entscheidsuche.ch/)** collects and publishes Swiss court decisions; this project would
+not exist without their work. Parts of the code were written with the help of Anthropic's Claude Code.
 
-Built during my job search (January 2026 - present). This project represents:
-- Production-grade LLM application development
-- LLMOps certification applied to real-world problems
-- 7+ Years experience in Data Science
+## Disclaimer
 
-### Special Thanks
-
-**[Entscheidsuche.ch](https://entscheidsuche.ch/)** - This project would not be possible without the incredible work of the Entscheidsuche.ch team. They have built and maintain the scrapers that collect Swiss court decisions, and provide open access to this invaluable legal data. Their commitment to making Swiss case law accessible is a cornerstone of legal transparency in Switzerland.
-
-**[Claude Code](https://claude.ai/claude-code)** - Parts of the frontend interface and MFA implementation were developed with assistance from Claude Code, Anthropic's AI-powered development tool. This project embraces modern AI-assisted development practices to accelerate delivery while maintaining code quality.
-## ⚠️ Project Status & Disclaimer
-
-**This is a portfolio/demonstration project built to showcase:**
-- End-to-end LLM application development skills
-- Application of LLMOps certification
-- Production-grade system design and architecture capabilities
-
-**Important clarifications:**
-- ✅ This project has **never been commercialized** and has generated **zero revenue**
-- ✅ Built solely as a **demonstration of technical capabilities** for job applications
-- ✅ All code is provided **as-is for educational and reference purposes**
-
-**Legal Disclaimer:**
-This software is provided under the MIT License (see LICENSE file). It is not intended as legal advice and should not be used for actual legal practice without proper review, testing, and compliance verification. The author assumes no liability for any use of this software. Always consult qualified legal professionals for legal matters.
-
----
-
-**⭐ Star this repo if you find it useful!**
+KERBERUS is a demonstration and reference project. It has never been commercialised. Its output is not legal advice
+and must be verified by a qualified professional before any use; the author accepts no liability. Retrieval quality
+depends entirely on the data you ingest.

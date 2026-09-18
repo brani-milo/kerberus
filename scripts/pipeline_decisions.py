@@ -34,7 +34,7 @@ import time
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Set
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent

@@ -17,12 +17,12 @@ Note: Tabular Review module preserved in review_app.py for future development.
 """
 
 import os
-import asyncio
-import json
+import html
 import logging
 import base64
+import re
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Optional
 
 import chainlit as cl
 from chainlit.input_widget import Select, Switch, Slider
@@ -31,16 +31,15 @@ from chainlit.input_widget import Select, Switch, Slider
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.search.triad_search import TriadSearch
-from src.llm import get_pipeline, ContextAssembler
+from src.pipeline import get_query_service, PipelineOptions
 
 # Document processor for file uploads in assistant mode
 from src.review import DocumentProcessor
 
 # Auth imports
-from src.database.auth_db import get_auth_db, verify_password, hash_password
-from src.auth.mfa import verify_totp, find_matching_backup_code, setup_mfa, generate_backup_codes, hash_backup_codes
-from src.api.deps import get_rate_limiter, store_pending_mfa_secret
+from src.database.auth_db import get_auth_db
+from src.auth.service import AuthService
+from src.api.deps import get_rate_limiter
 
 # Conversation persistence (encrypted)
 from src.database.encrypted_data_layer import get_encrypted_data_layer, EncryptedChainlitDataLayer
@@ -50,6 +49,12 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # ENCRYPTED DATA LAYER FOR CONVERSATION PERSISTENCE
 # =============================================================================
+
+# Allow unknown emails to self-register via the login form (default: enabled for demos).
+# Set ALLOW_SELF_REGISTRATION=false in production to restrict access to existing accounts.
+ALLOW_SELF_REGISTRATION = os.getenv("ALLOW_SELF_REGISTRATION", "true").lower() == "true"
+if ALLOW_SELF_REGISTRATION:
+    logger.warning("Self-registration is ENABLED: any unknown email can create an account via the login form")
 
 # Global data layer instance
 _data_layer: Optional[EncryptedChainlitDataLayer] = None
@@ -75,9 +80,6 @@ def data_layer():
     return get_data_layer()
 
 # Global instances (initialized lazily)
-triad_search = None
-pipeline = None
-context_assembler = None
 doc_processor = None
 
 # Auth components
@@ -104,94 +106,71 @@ def get_auth_components():
     return auth_db, rate_limiter
 
 
+_auth_service = None
+
+
+def get_auth_service() -> AuthService:
+    """AuthService shared with the REST API (same lockout/MFA/password rules)."""
+    global _auth_service
+    if _auth_service is None:
+        db, _ = get_auth_components()
+        _auth_service = AuthService(db)
+    return _auth_service
+
+
 @cl.password_auth_callback
 async def auth_callback(username: str, password: str) -> Optional[cl.User]:
     """
-    Authenticate user with email/password.
+    Authenticate with email/password via the shared AuthService.
 
-    - If user exists: verify password and log in
-    - If user doesn't exist: register them automatically
-    - If MFA is enabled: trigger MFA verification flow
+    - Existing user: password check with lockout; MFA verification happens in chat.
+    - Unknown user: registered automatically only when ALLOW_SELF_REGISTRATION is true.
     """
-    db, _ = get_auth_components()
-
+    auth = get_auth_service()
     try:
-        user = db.get_user_by_email(username)
+        result = auth.authenticate(username, password)
 
-        # User doesn't exist - register them
-        if user is None:
-            # Validate password length
-            if len(password) < 8:
-                logger.warning(f"Registration failed: password too short for {username}")
+        if result.reason == "not_found":
+            if not ALLOW_SELF_REGISTRATION:
+                logger.warning(f"Login attempt for unknown user {username} (self-registration disabled)")
                 return None
-
-            # Validate email format (basic check)
-            if "@" not in username or "." not in username:
-                logger.warning(f"Registration failed: invalid email {username}")
-                return None
-
-            # Create new user
             try:
-                password_hash_value = hash_password(password)
-                user_id = db.create_user(username, password_hash_value)
-                # Don't create session yet - require MFA setup first
-                db.update_last_login(user_id)
-
-                logger.info(f"New user registered: {username}")
-
-                return cl.User(
-                    identifier=username,
-                    metadata={
-                        "user_id": user_id,
-                        "email": username,
-                        "mfa_required": False,
-                        "mfa_verified": True,
-                        "mfa_setup_required": True,
-                        "is_new_user": True,
-                    }
-                )
-            except Exception as reg_error:
-                logger.error(f"Registration error: {reg_error}")
+                user_id = auth.register(username, password)
+            except ValueError as reg_error:
+                logger.warning(f"Registration failed for {username}: {reg_error}")
                 return None
-
-        # User exists - verify password
-        if not user["is_active"]:
-            return None
-
-        if not verify_password(password, user["password_hash"]):
-            return None
-
-        user_id = str(user["user_id"])
-
-        # If MFA is enabled, we need to verify TOTP before granting access
-        if user["mfa_enabled"]:
-            # Return user with MFA pending flag
-            # The on_chat_start will handle MFA verification
             return cl.User(
-                identifier=user["email"],
+                identifier=username,
                 metadata={
-                    "user_id": user_id,
-                    "email": user["email"],
-                    "mfa_required": True,
-                    "mfa_verified": False,
-                    "totp_secret": user["totp_secret"],
-                }
+                    "user_id": user_id, "email": username,
+                    "mfa_required": False, "mfa_verified": True,
+                    "mfa_setup_required": True, "is_new_user": True,
+                },
             )
 
-        # No MFA enabled - user must set up MFA before accessing the app
-        # Don't create session yet - require MFA setup first
-        logger.info(f"User {user['email']} logged in but MFA not enabled - requiring setup")
+        if result.reason in ("locked", "inactive", "bad_password"):
+            logger.info(f"Login rejected for {username}: {result.reason}")
+            return None
 
+        user = result.user
+        user_id = str(user["user_id"])
+        if result.reason == "mfa_required":
+            # NOTE: the TOTP secret is deliberately NOT stored here. Chainlit
+            # serializes user metadata into the auth JWT sent to the browser.
+            return cl.User(
+                identifier=user["email"],
+                metadata={"user_id": user_id, "email": user["email"], "mfa_required": True, "mfa_verified": False},
+            )
+
+        # Password OK but MFA not enabled yet: force setup before use
+        logger.info(f"User {user['email']} logged in but MFA not enabled - requiring setup")
         return cl.User(
             identifier=user["email"],
             metadata={
-                "user_id": user_id,
-                "email": user["email"],
-                "mfa_required": False,
-                "mfa_verified": True,
-                "mfa_setup_required": True,  # Flag to require MFA setup
-                "is_new_user": False,
-            }
+                "user_id": user_id, "email": user["email"],
+                "mfa_required": False, "mfa_verified": True,
+                "mfa_setup_required": True, "is_new_user": False,
+            },
         )
 
     except Exception as e:
@@ -200,49 +179,60 @@ async def auth_callback(username: str, password: str) -> Optional[cl.User]:
 
 
 async def verify_mfa_code(user_metadata: dict, code: str) -> bool:
-    """
-    Verify MFA code (TOTP or backup code).
-
-    Returns True if verified, False otherwise.
-    """
-    db, _ = get_auth_components()
-    user_id = user_metadata["user_id"]
-    totp_secret = user_metadata.get("totp_secret")
-
-    # Try TOTP first
-    if verify_totp(totp_secret, code):
-        return True
-
-    # Try backup code
-    hashed_codes = db.get_backup_codes(user_id)
-    code_index = find_matching_backup_code(code, hashed_codes)
-    if code_index is not None:
-        db.remove_backup_code(user_id, code_index)
-        logger.info(f"Backup code used for user {user_id}")
-        return True
-
-    return False
+    """Verify a TOTP or backup code (secret is looked up server-side)."""
+    return get_auth_service().verify_mfa_code(user_metadata["user_id"], code)
 
 
 async def complete_mfa_login(user: cl.User) -> None:
     """Complete login after MFA verification."""
-    db, _ = get_auth_components()
-    user_id = user.metadata["user_id"]
-
-    # Create session
-    session_token = db.create_session(user_id, expires_hours=24)
-    db.update_last_login(user_id)
-
-    # Update user metadata
-    user.metadata["session_token"] = session_token
+    user.metadata["session_token"] = get_auth_service().create_session(user.metadata["user_id"])
     user.metadata["mfa_verified"] = True
-
     logger.info(f"MFA verified for user: {user.identifier}")
 
 
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
+def escape_untrusted(text) -> str:
+    """
+    HTML-escape text that comes from retrieved documents.
+
+    Chainlit renders messages with `unsafe_allow_html = true` (needed for the
+    welcome banner and the <details> sources block), so a raw '<' inside scraped
+    court text would otherwise be interpreted as HTML (stored-XSS vector).
+    """
+    return html.escape(str(text or ""), quote=False)
+
+
+_DANGEROUS_TAGS = re.compile(
+    r"<\s*/?\s*(script|iframe|object|embed|style|link|meta|form|input|button|svg|math)\b[^>]*>",
+    re.IGNORECASE,
+)
+_EVENT_HANDLER_ATTR = re.compile(
+    r"(<[^>]*?)\s+on\w+\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s>]+)",
+    re.IGNORECASE,
+)
+_JS_URL = re.compile(r"(href|src)\s*=\s*([\"']?)\s*javascript:", re.IGNORECASE)
+
+
+def sanitize_llm_html(text: str) -> str:
+    """
+    Strip active HTML (script/iframe tags, inline event handlers, javascript: URLs)
+    from LLM output while leaving Markdown untouched.
+
+    The model is fed scraped documents, so its output is not fully trusted either.
+    """
+    if not text:
+        return text
+    cleaned = _DANGEROUS_TAGS.sub("", text)
+    previous = None
+    while previous != cleaned:  # attributes may be repeated inside one tag
+        previous = cleaned
+        cleaned = _EVENT_HANDLER_ATTR.sub(r"\1", cleaned)
+    cleaned = _JS_URL.sub(r"\1=\2", cleaned)
+    return cleaned
+
 
 def get_consistency_indicator(consistency: str, confidence: str) -> str:
     """Generate traffic light indicator for response consistency."""
@@ -336,6 +326,8 @@ def format_law_result(result: dict, rank: int) -> str:
 
     text = payload.get('article_text', payload.get('text_preview', ''))
     preview = text[:300] + "..." if len(text) > 300 else text
+    preview = escape_untrusted(preview)
+    citation = escape_untrusted(citation)
 
     return f"""**{rank}. {citation}**
 SR {sr_num} • `{lang}` • Score: {final_score:.2f}
@@ -385,7 +377,6 @@ def format_decision_result(result: dict, rank: int) -> str:
     if '_chunk_' in citation:
         citation = citation.split('_chunk_')[0]
     elif ' chunk ' in citation.lower():
-        import re
         citation = re.split(r'\s+chunk\s+\d+', citation, flags=re.IGNORECASE)[0].strip()
 
     court = payload.get('court', '')
@@ -414,7 +405,6 @@ def format_decision_result(result: dict, rank: int) -> str:
             # Use first paragraph of reasoning
             reasoning = full_content.get('reasoning', '')
             # Find first paragraph (after any header)
-            import re
             # Skip headers like "Erwägungen" or "Considérant en fait"
             clean_reasoning = re.sub(r'^(Erwägungen|Considérant|Diritto|Considerando)[^\n]*\n?', '', reasoning)
             text = clean_reasoning[:500]
@@ -430,6 +420,8 @@ def format_decision_result(result: dict, rank: int) -> str:
         text = payload.get('text_preview', '')
 
     preview = str(text)[:250] + "..." if len(str(text)) > 250 else str(text)
+    preview = escape_untrusted(preview)
+    citation = escape_untrusted(citation)
     meta = f"{year}" if year else ""
     if court_display:
         meta += f" • {court_display}" if meta else court_display
@@ -445,7 +437,6 @@ def format_decision_result(result: dict, rank: int) -> str:
 def format_sources_collapsible(codex_results: list, library_results: list, codex_conf: str, library_conf: str) -> str:
     """Format search results as a collapsible sources section."""
     parts = []
-    codex_emoji = get_search_confidence_indicator(codex_conf)
     library_emoji = get_search_confidence_indicator(library_conf)
 
     if codex_results:
@@ -464,8 +455,6 @@ def format_sources_collapsible(codex_results: list, library_results: list, codex
 
             payload = res.get('payload', {})
             decision_id = payload.get('decision_id', '') or payload.get('_original_id', '')
-
-            import re
 
             # Skip entries with invalid IDs (single words, no numbers, not case identifiers)
             if not decision_id or decision_id == '-':
@@ -541,15 +530,7 @@ async def handle_mfa_verification(code: str):
         # Reset mode and show welcome
         cl.user_session.set("mode", "start")
 
-        # Initialize components and show welcome
-        global triad_search, pipeline, context_assembler, doc_processor
-
-        if triad_search is None:
-            triad_search = TriadSearch()
-        if pipeline is None:
-            pipeline = get_pipeline()
-        if context_assembler is None:
-            context_assembler = ContextAssembler()
+        global doc_processor
         if doc_processor is None:
             doc_processor = DocumentProcessor()
 
@@ -601,17 +582,11 @@ async def on_chat_resume(thread):
     This is called when a user clicks on a previous thread in the sidebar.
     The thread parameter contains the thread data from the data layer.
     """
-    global triad_search, pipeline, context_assembler, doc_processor
+    global doc_processor
 
     logger.info(f"Resuming thread: {thread.get('id', 'unknown')}")
 
     # Initialize components lazily
-    if triad_search is None:
-        triad_search = TriadSearch()
-    if pipeline is None:
-        pipeline = get_pipeline()
-    if context_assembler is None:
-        context_assembler = ContextAssembler()
     if doc_processor is None:
         doc_processor = DocumentProcessor()
 
@@ -657,7 +632,7 @@ Continue your legal research below. Just type your question."""
 
 @cl.on_chat_start
 async def on_chat_start():
-    global triad_search, pipeline, context_assembler, doc_processor
+    global doc_processor
 
     # Check if user needs MFA verification
     user = cl.user_session.get("user")
@@ -672,13 +647,6 @@ _Or enter a backup code (format: XXXX-XXXX) if you don't have access to your aut
         ).send()
         return
 
-    # Initialize components lazily
-    if triad_search is None:
-        triad_search = TriadSearch()
-    if pipeline is None:
-        pipeline = get_pipeline()
-    if context_assembler is None:
-        context_assembler = ContextAssembler()
     if doc_processor is None:
         doc_processor = DocumentProcessor()
 
@@ -859,40 +827,25 @@ async def handle_mfa_setup_verification(code: str):
         cl.user_session.set("mode", "start")
         return
 
-    # Clean the code
-    clean_code = code.strip().replace(" ", "")
+    auth = get_auth_service()
+    user_id = user.metadata["user_id"]
+    backup_codes = auth.complete_mfa_setup(user_id, pending_secret, code)
 
-    # Verify the code
-    if verify_totp(pending_secret, clean_code):
-        db, _ = get_auth_components()
-        user_id = user.metadata["user_id"]
+    if backup_codes is None:
+        await cl.Message(content="❌ **Invalid code.** Please check your authenticator app and try again.").send()
+        return
 
-        # Enable MFA
-        db.update_totp_secret(user_id, pending_secret)
+    cl.user_session.set("pending_mfa_secret", None)
+    cl.user_session.set("mode", "start")
 
-        # Generate and store backup codes
-        backup_codes = generate_backup_codes(count=8)
-        hashed_codes = hash_backup_codes(backup_codes)
-        db.store_backup_codes(user_id, hashed_codes)
+    user.metadata["mfa_required"] = True
+    user.metadata["mfa_verified"] = True
+    user.metadata["mfa_setup_required"] = False
+    user.metadata["session_token"] = auth.create_session(user_id)
 
-        # Clear pending secret
-        cl.user_session.set("pending_mfa_secret", None)
-        cl.user_session.set("mode", "start")
-
-        # Create session now that MFA is set up
-        session_token = db.create_session(user_id, expires_hours=24)
-
-        # Update user metadata
-        user.metadata["mfa_required"] = True
-        user.metadata["mfa_verified"] = True
-        user.metadata["mfa_setup_required"] = False
-        user.metadata["session_token"] = session_token
-
-        # Show success with backup codes
-        codes_formatted = "\n".join([f"- `{code}`" for code in backup_codes])
-
-        await cl.Message(
-            content=f"""# ✅ Two-Factor Authentication Enabled!
+    codes_formatted = "\n".join([f"- `{code}`" for code in backup_codes])
+    await cl.Message(
+        content=f"""# ✅ Two-Factor Authentication Enabled!
 
 Your account is now protected with 2FA.
 
@@ -909,15 +862,9 @@ Your account is now protected with 2FA.
 Ask legal questions in German, French, or Italian. Get answers with citations from Swiss laws and court decisions.
 
 _Click the button below to begin:_""",
-            actions=[get_start_button()]
-        ).send()
-
-        logger.info(f"MFA enabled for user: {user.identifier}")
-
-    else:
-        await cl.Message(
-            content="❌ **Invalid code.** Please check your authenticator app and try again."
-        ).send()
+        actions=[get_start_button()]
+    ).send()
+    logger.info(f"MFA enabled for user: {user.identifier}")
 
 
 async def start_mfa_setup():
@@ -927,53 +874,33 @@ async def start_mfa_setup():
         await cl.Message(content="❌ Please log in first.").send()
         return
 
-    db, _ = get_auth_components()
-    user_id = user.metadata["user_id"]
-
-    # Check if MFA already enabled
-    full_user = db.get_user_by_id(user_id)
-    if full_user and full_user["mfa_enabled"]:
+    try:
+        secret, uri, qr_base64 = get_auth_service().begin_mfa_setup(user.metadata["user_id"], user.identifier)
+    except ValueError:
         await cl.Message(content="✅ MFA is already enabled on your account.").send()
         return
 
-    # Generate TOTP secret
-    secret, uri, qr_base64 = setup_mfa(user.identifier, issuer="KERBERUS")
-
-    # Store pending secret in session
+    # Pending secret lives only in the server-side Chainlit session
     cl.user_session.set("pending_mfa_secret", secret)
     cl.user_session.set("mode", "mfa_setup")
 
-    # Extract raw bytes from base64 data URI for cl.Image
-    # Format: "data:image/png;base64,<base64_data>"
     if qr_base64.startswith("data:image/png;base64,"):
-        b64_data = qr_base64.split(",", 1)[1]
-        qr_bytes = base64.b64decode(b64_data)
+        qr_bytes = base64.b64decode(qr_base64.split(",", 1)[1])
     else:
         qr_bytes = base64.b64decode(qr_base64)
 
-    # Create QR code image element
-    qr_image = cl.Image(
-        name="mfa_qr_code.png",
-        content=qr_bytes,
-        display="inline",
-        size="large"
-    )
-
-    # Show QR code
+    qr_image = cl.Image(name="mfa_qr_code.png", content=qr_bytes, display="inline", size="large")
     actions = [
         cl.Action(name="confirm_mfa", payload={}, label="✅ I've scanned it"),
         cl.Action(name="cancel_mfa", payload={}, label="❌ Cancel"),
     ]
-
     await cl.Message(
-        content=f"""# 🔐 Setup Two-Factor Authentication
+        content="""# 🔐 Setup Two-Factor Authentication
 
 Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.):""",
         elements=[qr_image],
         actions=actions
     ).send()
-
-    # Send manual entry instructions separately for clarity
     await cl.Message(
         content=f"""**Or enter this secret manually:**
 `{secret}`
@@ -1092,23 +1019,19 @@ You can also upload documents (PDF, DOCX, TXT) for analysis using the 📎 butto
 # =============================================================================
 
 async def handle_assistant_message(message: cl.Message, file_elements: List = None):
-    global triad_search, pipeline, doc_processor, context_assembler
+    """
+    One user turn: rate limit -> uploaded files -> LegalQueryService events -> UI.
 
-    # Ensure components are initialized (guard against None)
-    if triad_search is None:
-        triad_search = TriadSearch()
-    if pipeline is None:
-        pipeline = get_pipeline()
-    if context_assembler is None:
-        context_assembler = ContextAssembler()
+    The pipeline itself (guard, search, reformulate, context, analysis) lives in
+    src/pipeline/service.py and is shared with the REST API.
+    """
+    global doc_processor
 
-    # Check rate limit
+    # Rate limit (atomic; shared with the API)
     user = cl.user_session.get("user")
     if user and user.metadata.get("user_id"):
         _, rl = get_auth_components()
-        user_id = user.metadata["user_id"]
-        allowed, hourly_remaining, daily_remaining = rl.check_rate_limit(user_id)
-
+        allowed, hourly_remaining, daily_remaining = rl.consume(user.metadata["user_id"])
         if not allowed:
             await cl.Message(
                 content=f"""⚠️ **Rate limit exceeded**
@@ -1121,371 +1044,162 @@ Please wait before making more queries, or contact support to increase your limi
             ).send()
             return
 
-        # Record this request
-        rl.record_request(user_id)
-
-    # Parse uploaded files and include in context
+    # Uploaded files become part of the query sent to the models
     uploaded_content = ""
     uploaded_files_info = []
-
     if file_elements:
         if doc_processor is None:
             doc_processor = DocumentProcessor()
-
         for element in file_elements:
             if hasattr(element, 'path') and element.path:
                 try:
                     parsed = doc_processor.parse_file(element.path)
                     file_text = parsed.full_text
-
-                    # Truncate very long documents (keep first 15000 chars)
                     if len(file_text) > 15000:
                         file_text = file_text[:15000] + "\n\n[... Document truncated for analysis ...]"
-
                     uploaded_content += f"\n\n--- UPLOADED DOCUMENT: {element.name} ---\n{file_text}\n--- END OF {element.name} ---\n"
                     uploaded_files_info.append(f"📄 {element.name} ({parsed.total_pages} pages)")
-
                 except Exception as e:
                     logger.warning(f"Failed to parse uploaded file {element.name}: {e}")
                     uploaded_files_info.append(f"❌ {element.name} (failed to parse)")
-
         if uploaded_files_info:
             await cl.Message(
-                content=f"**Uploaded files included in analysis:**\n" + "\n".join(uploaded_files_info),
+                content="**Uploaded files included in analysis:**\n" + "\n".join(uploaded_files_info),
                 author="system"
             ).send()
 
     settings = cl.user_session.get("filters") or {}
     chat_history = cl.user_session.get("chat_history") or []
 
-    # Build filters
+    # Settings -> pipeline options
     filters = {}
-    lang_setting = settings.get("language", "All")
-    if lang_setting != "All":
-        lang_map = {"German (DE)": "de", "French (FR)": "fr", "Italian (IT)": "it"}
-        if lang_setting in lang_map:
-            filters["language"] = lang_map[lang_setting]
-
+    lang_map = {"German (DE)": "de", "French (FR)": "fr", "Italian (IT)": "it"}
+    if settings.get("language", "All") in lang_map:
+        filters["language"] = lang_map[settings["language"]]
     year_min = settings.get("year_min", 1950)
     year_max = settings.get("year_max", 2026)
     if year_min or year_max:
         filters["year_range"] = {"min": int(year_min), "max": int(year_max)}
+    scope_map = {"Both": "both", "Laws (Codex)": "laws", "Decisions (Library)": "decisions"}
+    options = PipelineOptions(
+        language="auto",
+        search_scope=scope_map.get(settings.get("search_scope", "Both"), "both"),
+        max_laws=25,
+        max_decisions=10,
+        web_search=bool(settings.get("web_search", False)),
+        filters=filters or None,
+        top_k=50,
+        stream=True,
+    )
+    show_sources = settings.get("show_sources", True)
+
+    full_query = message.content
+    if uploaded_content:
+        full_query = f"{message.content}\n\n[USER UPLOADED THE FOLLOWING DOCUMENT(S) FOR ANALYSIS:]{uploaded_content}"
 
     msg = cl.Message(content="")
     await msg.send()
+    status_msg = cl.Message(content="_🛡️ Security check and query optimization..._")
+    await status_msg.send()
 
+    status_texts = {
+        ("search", "processing"): "_🔍 Hybrid-Search + MMR + Reranking..._",
+        ("search", "skipped"): "_📝 Processing follow-up request..._",
+        ("reformulate", "processing"): "_📝 Structuring request..._",
+        ("context", "processing"): "_📄 Loading full documents..._",
+        ("analyze", "processing"): "_⚖️ Generating legal analysis..._",
+    }
+
+    answer = None
+    error_text = None
+    streamed = False
     try:
-        # Create a status message that we'll update
-        status_msg = cl.Message(content="_🛡️ Security check and query optimization..._")
-        await status_msg.send()
+        async for event in get_query_service().run(
+            full_query,
+            display_query=message.content,
+            chat_history=chat_history,
+            options=options,
+            previous_context=cl.user_session.get("previous_context"),
+        ):
+            key = (event.stage, event.status)
+            if key in status_texts:
+                status_msg.content = status_texts[key]
+                await status_msg.update()
 
-        # Build full query (user message + uploaded content)
-        full_query = message.content
-        if uploaded_content:
-            full_query = f"{message.content}\n\n[USER UPLOADED THE FOLLOWING DOCUMENT(S) FOR ANALYSIS:]{uploaded_content}"
-
-        # STAGE 1: Guard & Enhance
-        try:
-            logger.info("STAGE 1: Starting guard_and_enhance...")
-            # Run synchronous LLM call in thread to avoid blocking event loop
-            guard_result = await asyncio.to_thread(
-                pipeline.guard_and_enhance,
-                full_query,
-                chat_history  # Pass chat history for follow-up detection
-            )
-            logger.info(f"STAGE 1: guard_and_enhance completed (is_followup={guard_result.is_followup})")
-
-            if guard_result.status == "BLOCKED":
-                msg.content = f"""⚠️ **Request blocked**
-
-{guard_result.block_reason}
-
-Please rephrase your question or contact support."""
-                await msg.update()
-                # Remove status message if blocked
-                await status_msg.remove()
-                return
-
-            if guard_result.enhanced_query != guard_result.original_query:
-                # We can show this in the sidebar or just log it
-                pass
-
-            detected_language = guard_result.detected_language
-            enhanced_query = guard_result.enhanced_query
-            legal_concepts = guard_result.legal_concepts
-            is_followup = guard_result.is_followup
-            followup_type = guard_result.followup_type
-            # New task detection fields
-            tasks = guard_result.tasks
-            primary_task = guard_result.primary_task
-            search_needed = guard_result.search_needed
-
-        except Exception as guard_error:
-            logger.warning(f"Guard stage failed: {guard_error}")
-            detected_language = "de"
-            enhanced_query = message.content
-            legal_concepts = []
-            is_followup = False
-            followup_type = None
-            tasks = ["legal_analysis"]
-            primary_task = "legal_analysis"
-            search_needed = True
-
-        # Check if this is a follow-up question
-        previous_context = cl.user_session.get("previous_context")
-
-        if is_followup and previous_context:
-            # FOLLOW-UP: Skip search, use previous context
-            logger.info(f"STAGE 2: SKIPPED (follow-up detected: {followup_type})")
-            status_msg.content = "_📝 Processing follow-up request..._"
-            await status_msg.update()
-
-            codex_results = previous_context.get("codex_results", [])
-            library_results = previous_context.get("library_results", [])
-            codex_conf = previous_context.get("codex_conf", "NONE")
-            library_conf = previous_context.get("library_conf", "NONE")
-            show_sources = previous_context.get("show_sources", True)
-            search_scope = settings.get("search_scope", "Both")
-
-            # Regenerate sources element (Chainlit objects can't be stored)
-            sources_element = None
-            if show_sources and (codex_results or library_results):
-                sources_text = format_sources_collapsible(codex_results, library_results, codex_conf, library_conf)
-                sources_element = cl.Text(name="📚 Legal Sources", content=sources_text, display="side")
-
-            # Append follow-up instruction to the query for analysis
-            enhanced_query = f"[FOLLOW-UP REQUEST: {followup_type}]\nOriginal analysis topic: {previous_context.get('original_query', '')}\nUser's follow-up: {message.content}"
-        else:
-            # NEW QUESTION: Run full search
-            # STAGE 2: TriadSearch
-            status_msg.content = "_🔍 Hybrid-Search + MMR + Reranking..._"
-            await status_msg.update()
-
-            search_scope = settings.get("search_scope", "Both")
-            show_sources = settings.get("show_sources", True)
-
-            search_results = await triad_search.search(
-                query=enhanced_query,
-                user_id=None,
-                firm_id=None,
-                filters=filters if filters else None,
-                top_k=50
-            )
-
-            codex_results = []
-            library_results = []
-            codex_conf = "NONE"
-            library_conf = "NONE"
-
-            if search_scope in ["Both", "Laws (Codex)"]:
-                codex_data = search_results.get('codex', {})
-                codex_results = codex_data.get('results', [])
-                codex_conf = codex_data.get('confidence', 'NONE')
-
-            if search_scope in ["Both", "Decisions (Library)"]:
-                library_data = search_results.get('library', {})
-                library_results = library_data.get('results', [])
-                library_conf = library_data.get('confidence', 'NONE')
-
-            if not codex_results and not library_results:
-                msg.content = """No relevant legal sources found.
-
-Please try:
-- Different wording
-- More general terms"""
-                await msg.update()
-                await status_msg.remove()
-                return
-
-            # Prepare sources but don't send yet
-            sources_element = None
-            if show_sources:
-                sources_text = format_sources_collapsible(codex_results, library_results, codex_conf, library_conf)
-                sources_element = cl.Text(name="📚 Legal Sources", content=sources_text, display="side")
-
-            # Store context for potential follow-ups (don't store Chainlit objects)
-            cl.user_session.set("previous_context", {
-                "codex_results": codex_results,
-                "library_results": library_results,
-                "codex_conf": codex_conf,
-                "library_conf": library_conf,
-                "show_sources": show_sources,
-                "original_query": message.content,
-                "detected_language": detected_language,
-            })
-
-        # STAGE 3: Reformulate
-        status_msg.content = "_📝 Structuring request..._"
-        await status_msg.update()
-
-        logger.info("STAGE 3: Starting reformulate...")
-        topics = legal_concepts if legal_concepts else ["general legal question"]
-
-        # Run synchronous LLM call in thread to avoid blocking event loop
-        reformulated_query, reformulate_response = await asyncio.to_thread(
-            pipeline.reformulate,
-            original_query=message.content,
-            enhanced_query=enhanced_query,
-            language=detected_language,
-            law_count=len(codex_results),
-            decision_count=len(library_results),
-            topics=topics,
-            tasks=tasks,
-            primary_task=primary_task,
-        )
-        logger.info("STAGE 3: Reformulate completed")
-
-        # STAGE 4: Build Context
-        status_msg.content = "_📄 Loading full documents..._"
-        await status_msg.update()
-
-        logger.info("STAGE 4: Starting build_context...")
-        codex_for_context = [
-            {"id": r.get("id"), "score": r.get("final_score", r.get("score", 0)), "payload": r.get("payload", {})}
-            for r in codex_results
-        ]
-        library_for_context = [
-            {"id": r.get("id"), "score": r.get("final_score", r.get("score", 0)), "payload": r.get("payload", {})}
-            for r in library_results
-        ]
-
-        # Run synchronous Qdrant calls in thread to avoid blocking event loop
-        # Feed Qwen with 25 law articles (15 laws + 10 ordinances) and 10 decisions = 35 inputs
-        laws_context, decisions_context, context_meta = await asyncio.to_thread(
-            pipeline.build_context,
-            codex_results=codex_for_context,
-            library_results=library_for_context,
-            max_laws=25,
-            max_decisions=10,
-        )
-        logger.info(f"STAGE 4: build_context completed - laws={context_meta.get('laws_count', 0)}, decisions={context_meta.get('decisions_count', 0)}")
-
-        # STAGE 5: Legal Analysis
-        status_msg.content = "_⚖️ Generating legal analysis..._"
-        await status_msg.update()
-
-        logger.info("STAGE 5: Starting legal analysis...")
-        web_search_enabled = settings.get("web_search", False)
-
-        # Remove status message before streaming answer
-        await status_msg.remove()
-
-        # Send sources as a clean, collapsible message (no side element, no code block)
-        if show_sources and (codex_results or library_results):
-            sources_text = format_sources_collapsible(codex_results, library_results, codex_conf, library_conf)
-            
-            # Use HTML details tag for clean native folding without "code block" styling
-            content = f"""<details>
+            if event.stage == "search" and event.status in ("complete", "skipped"):
+                codex_results = event.data.get("codex_results", [])
+                library_results = event.data.get("library_results", [])
+                if show_sources and (codex_results or library_results):
+                    sources_text = format_sources_collapsible(
+                        codex_results, library_results,
+                        event.data.get("codex_confidence", "NONE"), event.data.get("library_confidence", "NONE"),
+                    )
+                    await cl.Message(
+                        content=f"""<details>
 <summary>📚 **Legal Sources** (Click to expand)</summary>
 
 {sources_text}
-</details>"""
-            
-            await cl.Message(content=content, author="system").send()
+</details>""",
+                        author="system",
+                    ).send()
 
-        # Update the main message to start streaming
-        msg.content = ""
-        await msg.update()
-
-        full_response = []
-        try:
-            logger.info("STAGE 5: Starting analysis (non-streaming to avoid event loop blocking)...")
-
-            # Use non-streaming version to avoid event loop blocking
-            # The streaming version blocks the event loop during HTTP iteration
-            # Run analysis in background task so we can send heartbeat updates
-            analysis_task = asyncio.create_task(asyncio.to_thread(
-                pipeline.analyze_sync,
-                reformulated_query=reformulated_query,
-                laws_context=laws_context,
-                decisions_context=decisions_context,
-                language=detected_language,
-                web_search=web_search_enabled,
-            ))
-
-            # Send heartbeat updates while waiting for analysis
-            dots = 0
-            while not analysis_task.done():
-                dots = (dots % 3) + 1
-                msg.content = f"_⚖️ Analyzing{'.' * dots}_"
-                await msg.update()
-                await asyncio.sleep(2)  # Update every 2 seconds
-
-            # Get the result
-            analysis_text, final_response = await analysis_task
-
-            # Clean up JSON consistency block from response and extract it
-            import re
-            consistency_match = re.search(r'```json\s*(\{[^}]+\})\s*```', analysis_text)
-            consistency_info = ""
-            if consistency_match:
-                try:
-                    consistency_data = json.loads(consistency_match.group(1))
-                    consistency = consistency_data.get("consistency", "MIXED")
-                    confidence = consistency_data.get("confidence", "medium")
-                    consistency_info = get_consistency_indicator(consistency, confidence)
-                    # Remove the JSON block from the text
-                    analysis_text = re.sub(r'```json\s*\{[^}]+\}\s*```', '', analysis_text).strip()
-                except json.JSONDecodeError:
-                    pass
-
-            # Stream the already-received response to the UI
-            logger.info("STAGE 5: Analysis received, streaming to UI...")
-            full_response = [analysis_text]
-            chunk_size = 50  # Characters per chunk
-            for i in range(0, len(analysis_text), chunk_size):
-                chunk = analysis_text[i:i + chunk_size]
-                msg.content = analysis_text[:i + chunk_size]
-                await msg.stream_token(chunk)
-                await asyncio.sleep(0.01)  # Small delay for UI rendering
-
-            # Add consistency indicator at the end if found
-            if consistency_info:
-                msg.content = analysis_text + f"\n\n---\n**{consistency_info}**"
+            elif event.stage == "analyze" and event.status == "processing":
+                await status_msg.remove()
+                msg.content = "_⚖️ Analyzing..._"
                 await msg.update()
 
-            logger.info("STAGE 5: Analysis complete")
+            elif event.stage == "analyze" and event.status == "chunk":
+                if not streamed:
+                    msg.content = ""
+                    streamed = True
+                await msg.stream_token(event.data["chunk"])
 
-        except Exception as e:
-            logger.error(f"STAGE 5: Analysis error: {e}")
-            msg.content = f"""**Analysis Error:** {str(e)}
+            elif event.stage == "complete":
+                answer = event.data["answer_obj"]
 
-The search was successful. Please try again."""
-            await msg.update()
-            return
-
-        if final_response:
-            total_tokens = final_response.total_tokens
-            cost = final_response.cost_chf
-            guard_cost = guard_result.response.cost_chf if guard_result.response else 0
-            reformulate_cost = reformulate_response.cost_chf if reformulate_response else 0
-            total_cost = cost + guard_cost + reformulate_cost
-            await cl.Message(
-                content=f"_Tokens: {total_tokens} | Kosten: CHF {total_cost:.4f}_",
-                author="system"
-            ).send()
-
-        chat_history.append({"role": "user", "content": message.content})
-        chat_history.append({"role": "assistant", "content": "".join(full_response)})
-        cl.user_session.set("chat_history", chat_history[-10:])
-        logger.info("Chat history updated, persisting messages...")
-
-        # Persist to encrypted storage
-        try:
-            await persist_messages(
-                user_message=message.content,
-                assistant_message="".join(full_response)
-            )
-            logger.info("Messages persisted successfully")
-        except Exception as pe:
-            logger.error(f"Failed to persist messages: {pe}")
-            # Don't raise - persistence failure shouldn't break the chat
-
-        logger.info("handle_assistant_message completed successfully")
+            elif event.stage == "error":
+                error_text = event.data.get("message", "Unexpected error")
+                break
 
     except Exception as e:
-        msg.content = f"**Error:** {str(e)}"
+        logger.error(f"Assistant turn failed: {e}", exc_info=True)
+        error_text = str(e)
+
+    if error_text or answer is None:
+        try:
+            await status_msg.remove()
+        except Exception:
+            pass
+        msg.content = f"""⚠️ **{error_text or 'No result'}**
+
+Please rephrase your question or try again."""
         await msg.update()
+        return
+
+    # Final text: sanitised, without the consistency JSON block, with the indicator appended
+    final_text = sanitize_llm_html(answer.answer)
+    indicator = get_consistency_indicator(answer.consistency, answer.confidence)
+    msg.content = final_text + (f"\n\n---\n**{indicator}**" if indicator else "")
+    await msg.update()
+
+    usage = answer.token_usage
+    await cl.Message(
+        content=f"_Tokens: {usage.get('total_tokens', 0)} | Kosten: CHF {usage.get('total_cost_chf', 0.0):.4f}_",
+        author="system",
+    ).send()
+
+    # Context for follow-up questions (only after a fresh search)
+    if not answer.followup_used:
+        cl.user_session.set("previous_context", answer.context_snapshot(message.content))
+
+    chat_history.append({"role": "user", "content": message.content})
+    chat_history.append({"role": "assistant", "content": final_text})
+    cl.user_session.set("chat_history", chat_history[-10:])
+
+    try:
+        await persist_messages(user_message=message.content, assistant_message=final_text)
+    except Exception as pe:
+        logger.error(f"Failed to persist messages: {pe}")
 
 
 # =============================================================================

@@ -42,6 +42,7 @@ data/
 
 # Test files
 tests/
+!tests/eval/
 *.test.py
 
 # Documentation
@@ -72,3 +73,18 @@ scraper_env/
 *.tar
 *.tar.gz
 *.rar
+
+# ---- added after audit ----
+# .env files anywhere (the plain ".env" rule only matched the repo root; frontend/.env
+# would have been copied by "COPY frontend/ ./frontend/")
+**/.env
+**/.env.*
+!.env.example
+# Chainlit runtime uploads and local scratch
+.files/
+**/.files/
+*.bak
+.Rhistory
+tracked_files.txt
+.github/
+**/__pycache__/

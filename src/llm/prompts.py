@@ -357,6 +357,20 @@ Beispiele:
 
 WICHTIG: Beginne mit dem WICHTIGSTEN für den Anwalt. Bei Verfahrensfragen: WAS wird benötigt und WANN kommt zuerst, nicht abstrakte Rechtslage.
 
+=== QUELLENAUSWAHL (KRITISCH) ===
+Die Quellen wurden AUTOMATISCH gesucht und sind nach Relevanz sortiert ([relevance: high/medium/low]).
+Sie können Normen enthalten, die mit der Frage NICHTS zu tun haben (z.B. ein Landwirtschaftsgesetz bei einer Steuerfrage).
+- VERWENDE NUR Quellen, die auf die Frage tatsächlich anwendbar sind. Es besteht KEINE Pflicht, jede Quelle zu verwenden.
+- ERWÄHNE unpassende Quellen NICHT - auch nicht als "nicht relevant". Einfach weglassen.
+- Quellen mit [relevance: low] nur zitieren, wenn sie eindeutig einschlägig sind.
+- ZITIERE NIE eine SR-Nummer, die nicht in den Quellen steht. Normen aus deinem Wissen: NUR Abkürzung + Artikel mit *(zu verifizieren)*, KEINE SR-Nummer.
+- Ordne jede zitierte Norm dem richtigen Rechtsgebiet zu (Steuerrecht ≠ Strassenverkehr ≠ Landwirtschaft).
+
+=== KONSISTENZ DER SCHLUSSFOLGERUNG ===
+- Die Schlussfolgerung MUSS exakt die Werte verwenden, die in den vorherigen Schritten berechnet wurden. NIE einen Zwischenwert durch eine andere Zahl (z.B. eine Gesamtsumme) ersetzen.
+- Vor dem Schreiben der Schlussfolgerung: Schritte nochmals lesen und prüfen, dass jede Zahl übereinstimmt.
+- Wenn eine DAUER berechnet wird und der Benutzer Daten genannt hat: das konkrete ENDDATUM angeben (z.B. "bis ca. 15. Juli 2027"), nicht nur die Dauer.
+
 === ZITIERFORMAT ===
 Art. [Nr] [Abk] cpv. [X]: « [Text] »
 > Original: "[...]"
@@ -486,6 +500,20 @@ Exemples:
 
 IMPORTANT: Commencez par le PLUS IMPORTANT pour l'avocat. Pour questions procédurales: CE QUI est nécessaire et QUAND vient en premier, pas la situation juridique abstraite.
 
+=== SÉLECTION DES SOURCES (CRITIQUE) ===
+Les sources ont été recherchées AUTOMATIQUEMENT et sont classées par pertinence ([relevance: high/medium/low]).
+Elles peuvent contenir des normes SANS rapport avec la question (p.ex. une loi agricole pour une question fiscale).
+- N'UTILISE QUE les sources réellement applicables. AUCUNE obligation d'utiliser chaque source.
+- NE MENTIONNE PAS les sources inadaptées - même pas comme "non pertinentes". Omets-les.
+- Les sources [relevance: low] ne sont citées que si elles sont clairement applicables.
+- NE CITE JAMAIS un numéro RS absent des sources. Normes issues de tes connaissances: UNIQUEMENT abréviation + article avec *(à vérifier)*, SANS numéro RS.
+- Rattache chaque norme citée au bon domaine juridique (droit fiscal ≠ circulation routière ≠ agriculture).
+
+=== COHÉRENCE DE LA CONCLUSION ===
+- La conclusion DOIT reprendre exactement les valeurs calculées dans les étapes précédentes. Ne JAMAIS remplacer une valeur intermédiaire par un autre chiffre (p.ex. un total).
+- Avant de rédiger la conclusion: relire les étapes et vérifier que chaque chiffre concorde.
+- Si une DURÉE est calculée et que l'utilisateur a donné des dates: indiquer la DATE DE FIN concrète (p.ex. "jusqu'au 15 juillet 2027 env."), pas seulement la durée.
+
 === FORMAT DE CITATION ===
 Art. [Nr] [Abrév.] al. [X]: « [Texte] »
 > Original: "[...]"
@@ -614,6 +642,20 @@ Esempi:
 - Per STRATEGIA: Punti di forza/debolezza → Possibilità di successo → Come procedere
 
 IMPORTANTE: Inizia con il PIÙ IMPORTANTE per l'avvocato. Per domande procedurali: COSA serve e QUANDO viene prima, non la situazione giuridica astratta.
+
+=== SELEZIONE DELLE FONTI (CRITICO) ===
+Le fonti sono state cercate AUTOMATICAMENTE e sono ordinate per rilevanza ([relevance: high/medium/low]).
+Possono contenere norme che NON hanno nulla a che fare con la domanda (es. una legge agricola per una domanda fiscale).
+- USA SOLO le fonti realmente applicabili alla domanda. NESSUN obbligo di usare ogni fonte.
+- NON MENZIONARE le fonti non pertinenti - nemmeno come "non rilevanti". Ometterle.
+- Le fonti [relevance: low] vanno citate solo se chiaramente applicabili.
+- NON CITARE MAI un numero RS che non compare nelle fonti. Norme dalla tua conoscenza: SOLO abbreviazione + articolo con *(da verificare)*, SENZA numero RS.
+- Collega ogni norma citata al giusto ambito giuridico (diritto fiscale ≠ circolazione stradale ≠ agricoltura).
+
+=== COERENZA DELLA CONCLUSIONE ===
+- La conclusione DEVE usare esattamente i valori calcolati nei passi precedenti. MAI sostituire un valore intermedio con un'altra cifra (es. un totale complessivo).
+- Prima di scrivere la conclusione: rileggere i passi e verificare che ogni cifra corrisponda.
+- Se si calcola una DURATA e l'utente ha fornito delle date: indicare la DATA FINALE concreta (es. "fino a circa il 15 luglio 2027"), non solo la durata.
 
 === FORMATO CITAZIONE ===
 Art. [Nr] [Abb.] cpv. [X]: « [Testo] »
@@ -745,6 +787,20 @@ Examples:
 - For STRATEGY: Strengths/Weaknesses → Chances of success → How to proceed
 
 IMPORTANT: Start with what's MOST IMPORTANT for the lawyer. For procedural questions: WHAT is needed and WHEN comes first, not abstract legal situation.
+
+=== SOURCE SELECTION (CRITICAL) ===
+Sources were retrieved AUTOMATICALLY and are ordered by relevance ([relevance: high/medium/low]).
+They may include provisions with NO connection to the question (e.g. an agricultural law for a tax question).
+- USE ONLY sources that actually apply to the question. There is NO obligation to use every source.
+- DO NOT MENTION unrelated sources - not even as "not relevant". Simply omit them.
+- Cite [relevance: low] sources only when they are clearly applicable.
+- NEVER cite an SR number that is not in the sources. Provisions from your own knowledge: abbreviation + article with *(to be verified)* ONLY, NO SR number.
+- Attribute every cited provision to the correct field of law (tax ≠ road traffic ≠ agriculture).
+
+=== CONSISTENCY OF THE CONCLUSION ===
+- The conclusion MUST reuse exactly the values computed in the previous steps. NEVER replace an intermediate value with a different figure (e.g. a lifetime total).
+- Before writing the conclusion: re-read the steps and check that every number matches.
+- When a DURATION is computed and the user gave dates: state the concrete END DATE (e.g. "until about 15 July 2027"), not only the duration.
 
 === CITATION FORMAT ===
 Art. [Nr] [Abbr.] para. [X]: « [Text] »

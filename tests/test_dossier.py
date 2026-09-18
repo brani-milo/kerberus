@@ -10,9 +10,8 @@ Covers:
 - Dossier statistics
 """
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
-from io import BytesIO
 
 from src.api.main import app
 from src.api.deps import get_db, get_current_user

@@ -20,12 +20,11 @@ Usage:
     # Returns: "Call me at <PHONE_NUMBER>"
 """
 import os
-import re
 import logging
 from typing import List, Dict, Optional, Set
 from dataclasses import dataclass
 
-from presidio_analyzer import AnalyzerEngine, RecognizerResult, Pattern, PatternRecognizer
+from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
@@ -58,12 +57,12 @@ class SwissAHVRecognizer(PatternRecognizer):
         ),
     ]
 
-    def __init__(self):
+    def __init__(self, language: str = "de"):
         super().__init__(
             supported_entity="SWISS_AHV",
             patterns=self.PATTERNS,
             context=["ahv", "avs", "sozialversicherung", "social security", "assurance sociale"],
-            supported_language="de",
+            supported_language=language,
         )
 
 
@@ -95,12 +94,12 @@ class SwissPhoneRecognizer(PatternRecognizer):
         ),
     ]
 
-    def __init__(self):
+    def __init__(self, language: str = "de"):
         super().__init__(
             supported_entity="SWISS_PHONE",
             patterns=self.PATTERNS,
             context=["telefon", "phone", "tel", "mobile", "handy", "natel"],
-            supported_language="de",
+            supported_language=language,
         )
 
 
@@ -124,12 +123,12 @@ class SwissIBANRecognizer(PatternRecognizer):
         ),
     ]
 
-    def __init__(self):
+    def __init__(self, language: str = "de"):
         super().__init__(
             supported_entity="SWISS_IBAN",
             patterns=self.PATTERNS,
             context=["iban", "konto", "account", "bank", "überweisung"],
-            supported_language="de",
+            supported_language=language,
         )
 
 
@@ -149,12 +148,12 @@ class SwissPostcodeRecognizer(PatternRecognizer):
         ),
     ]
 
-    def __init__(self):
+    def __init__(self, language: str = "de"):
         super().__init__(
             supported_entity="SWISS_POSTCODE",
             patterns=self.PATTERNS,
             context=["plz", "postleitzahl", "code postal", "npa", "adresse", "wohnort"],
-            supported_language="de",
+            supported_language=language,
         )
 
 
@@ -242,6 +241,18 @@ class PIIScrubber:
         if self.enabled:
             self._initialize_engines()
 
+    # spaCy models actually loaded in _initialize_engines(). Requests for other
+    # languages (fr/it) fall back to German so the analyzer does not raise and the
+    # language-agnostic Swiss pattern recognizers (AHV, IBAN, phone) still run.
+    NLP_LANGUAGES = ("de", "en")
+
+    def _resolve_language(self, language: Optional[str]) -> str:
+        lang = (language or "de").lower()[:2]
+        if lang not in self.NLP_LANGUAGES:
+            logger.debug(f"PII: no NLP model for language '{language}', falling back to 'de'")
+            return "de"
+        return lang
+
     def _initialize_engines(self) -> None:
         """Initialize Presidio analyzer and anonymizer engines."""
         try:
@@ -268,11 +279,14 @@ class PIIScrubber:
                 supported_languages=self.languages,
             )
 
-            # Add Swiss-specific recognizers
-            self._analyzer.registry.add_recognizer(SwissAHVRecognizer())
-            self._analyzer.registry.add_recognizer(SwissPhoneRecognizer())
-            self._analyzer.registry.add_recognizer(SwissIBANRecognizer())
-            self._analyzer.registry.add_recognizer(SwissPostcodeRecognizer())
+            # Add Swiss-specific recognizers for every language we can analyze.
+            # (Previously they were registered for "de" only, so AHV/IBAN/phone
+            # numbers in English text were never detected.)
+            for lang in self.NLP_LANGUAGES:
+                self._analyzer.registry.add_recognizer(SwissAHVRecognizer(lang))
+                self._analyzer.registry.add_recognizer(SwissPhoneRecognizer(lang))
+                self._analyzer.registry.add_recognizer(SwissIBANRecognizer(lang))
+                self._analyzer.registry.add_recognizer(SwissPostcodeRecognizer(lang))
 
             # Create anonymizer
             self._anonymizer = AnonymizerEngine()
@@ -307,6 +321,7 @@ class PIIScrubber:
             return []
 
         entities_to_detect = list(entity_types or self.entity_types)
+        language = self._resolve_language(language)
 
         try:
             results = self._analyzer.analyze(
@@ -360,6 +375,8 @@ class PIIScrubber:
         entities_to_scrub = self.entity_types.copy()
         if preserve_legal_dates:
             entities_to_scrub = entities_to_scrub - self.LEGAL_WHITELIST
+
+        language = self._resolve_language(language)
 
         try:
             # Detect entities

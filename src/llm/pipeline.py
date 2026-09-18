@@ -10,19 +10,31 @@ Three-stage LLM pipeline using Infomaniak AI:
 import os
 import json
 import logging
-import re
 from typing import Dict, List, Optional, Tuple, Generator
 from dataclasses import dataclass
 
-from .client import InfomaniakClient, LLMResponse, get_infomaniak_client
+from .client import LLMResponse, get_infomaniak_client
 from .prompts import GuardEnhancePrompts, ReformulatorPrompts, LegalAnalysisPrompts, WebSearchLegalPrompts
 from .context import ContextAssembler, _normalize_decision_id
 
 logger = logging.getLogger(__name__)
 
 # Models from environment
-GUARD_MODEL = os.getenv("INFOMANIAK_GUARD_MODEL", "mistral-small-3.2-24b-instruct-2506")
-ANALYSIS_MODEL = os.getenv("INFOMANIAK_ANALYSIS_MODEL", "qwen3-235b-a22b-instruct")
+GUARD_MODEL = os.getenv("INFOMANIAK_GUARD_MODEL", "mistral24b")  # Infomaniak short names: mistral24b, mistral3, qwen3
+ANALYSIS_MODEL = os.getenv("INFOMANIAK_ANALYSIS_MODEL", "qwen3")
+
+# Character budget for all decisions in one prompt (~4 chars/token). Full BGE
+# decisions are large; without a cap ten of them overflow the context window.
+MAX_DECISIONS_CONTEXT_CHARS = int(os.getenv("MAX_DECISIONS_CONTEXT_CHARS", "120000"))
+MAX_LAWS_CONTEXT_CHARS = int(os.getenv("MAX_LAWS_CONTEXT_CHARS", "60000"))
+
+_LANGUAGE_NAMES = {"de": "German (Deutsch)", "fr": "French (français)", "it": "Italian (italiano)", "en": "English"}
+
+
+def _response_language_note(language: str) -> str:
+    """The user template is written in German; state the answer language explicitly."""
+    name = _LANGUAGE_NAMES.get((language or "de").lower()[:2], language)
+    return f"\n\nRESPONSE LANGUAGE: write the entire answer in {name}, including headings, tables and the *(to verify)* markers in that language."
 
 
 @dataclass
@@ -254,7 +266,7 @@ class LegalPipeline:
                 laws_context=laws_context,
                 decisions_context=decisions_context,
                 language=language,
-            )
+            ) + _response_language_note(language)
             logger.info("Using web search enhanced analysis")
         else:
             system_prompt = LegalAnalysisPrompts.get_system_prompt(language)
@@ -262,7 +274,7 @@ class LegalPipeline:
                 reformulated_query=reformulated_query,
                 laws_context=laws_context,
                 decisions_context=decisions_context,
-            )
+            ) + _response_language_note(language)
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -304,7 +316,7 @@ class LegalPipeline:
                 laws_context=laws_context,
                 decisions_context=decisions_context,
                 language=language,
-            )
+            ) + _response_language_note(language)
             logger.info("Using web search enhanced analysis (sync)")
         else:
             system_prompt = LegalAnalysisPrompts.get_system_prompt(language)
@@ -312,7 +324,7 @@ class LegalPipeline:
                 reformulated_query=reformulated_query,
                 laws_context=laws_context,
                 decisions_context=decisions_context,
-            )
+            ) + _response_language_note(language)
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -359,10 +371,28 @@ class LegalPipeline:
             if art_title:
                 header += f" - {art_title}"
             header += f" (SR {sr_number}, {lang.upper()})"
+            tier = result.get("relevance_tier")
+            if tier:
+                header += f" [relevance: {tier}]"
+
+            # Name of the law and its position in it: tells the model what field of
+            # law the article belongs to before it reads the text.
+            law_name = payload.get("sr_name") or (result.get("full_document") or {}).get("title")
+            hierarchy = payload.get("hierarchy_path")
+            info = []
+            if law_name:
+                info.append(f"Gesetz/Loi/Legge: {law_name}")
+            if hierarchy and hierarchy != law_name:
+                info.append(f"Systematik: {hierarchy}")
+            if info:
+                header += "\n" + " | ".join(info)
 
             laws_parts.append(f"{header}\n\n{text}")
 
         laws_context = "\n\n---\n\n".join(laws_parts) if laws_parts else "Keine relevanten Gesetze gefunden."
+        if len(laws_context) > MAX_LAWS_CONTEXT_CHARS:
+            laws_context = laws_context[:MAX_LAWS_CONTEXT_CHARS].rsplit("\n", 1)[0] + "\n[... gekürzt ...]"
+            logger.info("Laws context truncated to budget")
 
         # Build decisions context (fetch full documents)
         decisions_context, full_texts = self.context_assembler.assemble(
@@ -396,10 +426,20 @@ class LegalPipeline:
             lang = payload.get("language", "de")
 
             # Get full text if available (try normalized key first, then original)
-            text = full_texts.get(base_id) or full_texts.get(decision_id, "")
+            text = full_texts.get(base_id) or full_texts.get(decision_id, "") or result.get("full_content", "")
             if not text:
-                text = payload.get("text_preview", "")
-                logger.warning(f"No full text for {base_id}, using chunk preview")
+                text = payload.get("text") or payload.get("text_preview", "")
+                logger.warning(f"No full text for {base_id}, using chunk text")
+
+            # Enforce the total decisions budget (per-decision cap already applied by the fetcher)
+            used = sum(len(p) for p in decision_parts)
+            remaining = MAX_DECISIONS_CONTEXT_CHARS - used
+            if remaining <= 500:
+                logger.info(f"Decisions context budget reached after {len(seen_ids) - 1} decisions")
+                seen_ids.discard(base_id)
+                break
+            if len(text) > remaining:
+                text = text[:remaining].rsplit("\n", 1)[0] + "\n[... gekürzt ...]"
 
             # Build header
             if "BGE" in str(base_id):
@@ -413,6 +453,9 @@ class LegalPipeline:
             if court:
                 header += f" - {court}"
             header += f" [{lang.upper()}]"
+            tier = result.get("relevance_tier")
+            if tier:
+                header += f" [relevance: {tier}]"
 
             decision_parts.append(f"{header}\n\n{text}")
 

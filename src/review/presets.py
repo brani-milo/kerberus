@@ -10,7 +10,7 @@ Six specialized presets for different legal review scenarios:
 6. Document Discovery
 """
 
-from typing import Dict, List, Any
+from typing import Dict, List
 from dataclasses import dataclass, field
 
 

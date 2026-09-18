@@ -8,10 +8,11 @@ Handles:
 - Context formatting for LLM
 """
 import logging
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Tuple
 from collections import defaultdict
 
 from ..database.vector_db import QdrantManager
+from ..search.document_fetcher import fetch_full_decision, format_decision_for_llm
 from .prompts import LegalAnalysisPrompts
 
 logger = logging.getLogger(__name__)
@@ -182,9 +183,23 @@ class ContextAssembler:
         unique_results = []
 
         for normalized_id, chunks in list(decision_chunks.items())[:10]:  # Limit to top 10 unique decisions
+            original_id = original_ids.get(normalized_id, normalized_id)
             try:
-                # Use ORIGINAL ID to fetch from Qdrant (case-sensitive match)
-                original_id = original_ids.get(normalized_id, normalized_id)
+                # 1. Already enriched by the search lane (document store / files)
+                pre = chunks[0].get("full_content")
+                if pre:
+                    full_texts[normalized_id] = pre
+                    unique_results.append(chunks[0])
+                    continue
+
+                # 2. Full document from the store / indexed files
+                full_doc = fetch_full_decision(original_id)
+                if full_doc:
+                    full_texts[normalized_id] = format_decision_for_llm(full_doc)
+                    unique_results.append(chunks[0])
+                    continue
+
+                # 3. Reconstruct from the chunks stored in Qdrant
                 all_chunks = self._fetch_all_chunks(original_id)
 
                 if all_chunks:
@@ -198,7 +213,8 @@ class ContextAssembler:
                     for chunk in sorted_chunks:
                         chunk_payload = chunk.get("payload", {})
                         chunk_type = chunk_payload.get("chunk_type", "")
-                        text = chunk_payload.get("text_preview", "")
+                        # Full chunk text when present; 200-char preview only for legacy points
+                        text = chunk_payload.get("text") or chunk_payload.get("text_preview", "")
 
                         if chunk_type:
                             full_text_parts.append(f"[{chunk_type.upper()}]\n{text}")
@@ -218,10 +234,11 @@ class ContextAssembler:
                 else:
                     # Fallback: use what we have
                     unique_results.append(chunks[0])
-                    full_texts[normalized_id] = chunks[0].get("payload", {}).get("text_preview", "")
+                    p0 = chunks[0].get("payload", {})
+                    full_texts[normalized_id] = p0.get("text") or p0.get("text_preview", "")
 
             except Exception as e:
-                logger.error(f"Error fetching chunks for {decision_id}: {e}")
+                logger.error(f"Error fetching chunks for {original_id}: {e}")
                 # Fallback to original chunk
                 unique_results.append(chunks[0])
 

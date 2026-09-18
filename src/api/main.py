@@ -15,6 +15,7 @@ import time
 import uuid
 import logging
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +23,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
 from .routes import auth_router, chat_router, search_router, health_router, security_router, dossier_router
-from .models import ErrorResponse
+from .version import API_VERSION
 
 # Configure logging with request context support
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -31,20 +32,29 @@ LOG_FORMAT = os.getenv(
     "%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] %(message)s"
 )
 
-# Custom filter to add request_id to all log records
+# Current request id, propagated to every log line emitted while handling the
+# request (also inside asyncio.to_thread workers, which inherit the context).
+request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
+
+
 class RequestIdFilter(logging.Filter):
-    """Add request_id to log records."""
+    """Add request_id (from the request context) to log records."""
     def filter(self, record):
         if not hasattr(record, 'request_id'):
-            record.request_id = '-'
+            record.request_id = request_id_var.get()
         return True
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
     format=LOG_FORMAT,
 )
-# Add filter to root logger
-logging.getLogger().addFilter(RequestIdFilter())
+# Attach the filter to the HANDLERS, not the root logger: logger-level filters
+# are not applied to records propagated from child loggers, so attaching it to
+# the root logger left every `logging.getLogger(__name__)` call without
+# `request_id` and the formatter raised "Formatting field not found".
+_request_id_filter = RequestIdFilter()
+for _handler in logging.getLogger().handlers:
+    _handler.addFilter(_request_id_filter)
 logger = logging.getLogger(__name__)
 
 # API metadata
@@ -77,7 +87,6 @@ All endpoints (except `/health`) require Bearer token authentication.
 - **Codex**: Swiss federal laws (OR, ZGB, StGB, etc.)
 - **Library**: Court decisions (BGE, BGer, BVGE, etc.)
 """
-API_VERSION = os.getenv("APP_VERSION", "0.1.0")
 
 
 @asynccontextmanager
@@ -89,6 +98,20 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     logger.info(f"Starting KERBERUS API v{API_VERSION}")
+
+    # Warm up models in a worker thread so the first request does not pay for it
+    warm_default = "true" if os.getenv("APP_ENV", "development") == "production" else "false"
+    if os.getenv("WARM_UP_MODELS", warm_default).lower() == "true":
+        import asyncio
+        from ..pipeline import get_query_service
+
+        async def _warm():
+            try:
+                await asyncio.to_thread(get_query_service().warm_up)
+                logger.info("Models warmed up")
+            except Exception as e:
+                logger.warning(f"Model warm-up skipped: {e}")
+        asyncio.get_running_loop().create_task(_warm())
 
     # Initialize database schema
     try:
@@ -123,7 +146,8 @@ def create_app() -> FastAPI:
     )
 
     # CORS middleware
-    allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8501").split(",")
+    from ..config import get_settings
+    allowed_origins = get_settings().cors_origin_list
 
     app.add_middleware(
         CORSMiddleware,
@@ -141,17 +165,17 @@ def create_app() -> FastAPI:
 
         # Store in request state for access in route handlers
         request.state.request_id = request_id
-
-        # Add to logging context
-        # Note: For async handlers, use contextvars in production
+        token = request_id_var.set(request_id)
 
         start_time = time.time()
 
         try:
             response = await call_next(request)
         except Exception as e:
-            logger.error(f"[{request_id}] Request failed: {e}", exc_info=True)
+            logger.error(f"Request failed: {e}", exc_info=True)
             raise
+        finally:
+            request_id_var.reset(token)
 
         process_time = (time.time() - start_time) * 1000
 
@@ -162,8 +186,8 @@ def create_app() -> FastAPI:
         # Log request completion (skip health checks to reduce noise)
         if not request.url.path.startswith("/health"):
             logger.info(
-                f"[{request_id}] {request.method} {request.url.path} "
-                f"-> {response.status_code} ({process_time:.1f}ms)"
+                f"{request.method} {request.url.path} -> {response.status_code} ({process_time:.1f}ms)",
+                extra={"request_id": request_id},
             )
 
         # Security headers

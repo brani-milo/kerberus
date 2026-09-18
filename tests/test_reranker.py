@@ -1,6 +1,5 @@
 """Tests for BGE-Reranker."""
 
-import pytest
 from datetime import datetime
 from src.reranker.bge_reranker import BGEReranker
 

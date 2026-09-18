@@ -23,7 +23,6 @@ import sys
 import uuid
 import hashlib
 from pathlib import Path
-from typing import List, Dict
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance, VectorParams, PointStruct,

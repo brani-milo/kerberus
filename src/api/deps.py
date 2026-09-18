@@ -7,18 +7,16 @@ Provides:
 - Database connections
 - Redis client
 """
-import os
 import time
 import logging
 from typing import Optional, Dict
-from datetime import datetime, timezone
-from functools import lru_cache
 
 import redis
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from ..database.auth_db import AuthDB, get_auth_db
+from ..config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +39,8 @@ def get_redis_client() -> Optional[redis.Redis]:
     if _redis_client is not None:
         return _redis_client
 
-    host = os.getenv("REDIS_HOST", "localhost")
-    port = int(os.getenv("REDIS_PORT", "6379"))
-    password = os.getenv("REDIS_PASSWORD", "") or None
-    db = int(os.getenv("REDIS_DB", "0"))
+    settings = get_settings()
+    host, port, password, db = settings.redis_host, settings.redis_port, settings.redis_password, settings.redis_db
 
     try:
         _redis_client = redis.Redis(
@@ -60,8 +56,11 @@ def get_redis_client() -> Optional[redis.Redis]:
         _redis_client.ping()
         logger.info(f"Redis connected: {host}:{port}")
         return _redis_client
-    except redis.ConnectionError as e:
-        logger.warning(f"Redis connection failed: {e}. Rate limiting will use in-memory fallback.")
+    except (redis.ConnectionError, redis.TimeoutError, redis.RedisError) as e:
+        logger.warning(
+            f"Redis connection failed: {e}. Rate limiting will use in-memory fallback "
+            "(NOTE: in-memory counters are per worker process, so limits multiply with --workers)."
+        )
         _redis_client = None
         return None
 
@@ -148,8 +147,9 @@ class RateLimiter:
 
     def __init__(self, redis_client: Optional[redis.Redis] = None):
         self.redis = redis_client
-        self.daily_limit = int(os.getenv("RATE_LIMIT_DAILY", "300"))
-        self.hourly_limit = int(os.getenv("RATE_LIMIT_HOURLY", "50"))
+        settings = get_settings()
+        self.daily_limit = settings.rate_limit_daily
+        self.hourly_limit = settings.rate_limit_hourly
         # In-memory fallback storage
         self._memory_store: Dict[str, list] = {}
 
@@ -209,7 +209,10 @@ class RateLimiter:
 
     def check_rate_limit(self, user_id: str) -> tuple[bool, int, int]:
         """
-        Check if user is within rate limits.
+        Read-only check of whether the user is within rate limits.
+
+        Prefer `consume()` for enforcing limits: it increments atomically and
+        avoids the read-then-write race between two concurrent requests.
 
         Returns:
             Tuple of (allowed, remaining_hourly, remaining_daily)
@@ -217,7 +220,6 @@ class RateLimiter:
         hourly_key = f"{user_id}:hourly"
         daily_key = f"{user_id}:daily"
 
-        # Check current counts
         hourly_count = self._get_redis_count(hourly_key, 3600)
         daily_count = self._get_redis_count(daily_key, 86400)
 
@@ -229,13 +231,29 @@ class RateLimiter:
 
         return True, hourly_remaining, daily_remaining
 
-    def record_request(self, user_id: str) -> None:
-        """Record a request for rate limiting."""
-        hourly_key = f"{user_id}:hourly"
-        daily_key = f"{user_id}:daily"
+    def consume(self, user_id: str) -> tuple[bool, int, int]:
+        """
+        Atomically count one request against the user's limits.
 
-        self._increment_redis(hourly_key, 3600)
-        self._increment_redis(daily_key, 86400)
+        Uses INCR so two concurrent requests cannot both pass a stale read.
+        Rejected requests are still counted (standard behaviour for abuse control).
+
+        Returns:
+            Tuple of (allowed, remaining_hourly, remaining_daily) AFTER this request.
+        """
+        hourly_count = self._increment_redis(f"{user_id}:hourly", 3600)
+        daily_count = self._increment_redis(f"{user_id}:daily", 86400)
+
+        hourly_remaining = max(0, self.hourly_limit - hourly_count)
+        daily_remaining = max(0, self.daily_limit - daily_count)
+        allowed = hourly_count <= self.hourly_limit and daily_count <= self.daily_limit
+
+        return allowed, hourly_remaining, daily_remaining
+
+    def record_request(self, user_id: str) -> None:
+        """Record a request for rate limiting (non-atomic legacy path; see consume())."""
+        self._increment_redis(f"{user_id}:hourly", 3600)
+        self._increment_redis(f"{user_id}:daily", 86400)
 
 
 # Singleton rate limiter
@@ -261,13 +279,13 @@ async def check_rate_limit(
     Raises:
         HTTPException: If rate limit exceeded.
     """
-    enabled = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
+    enabled = get_settings().rate_limit_enabled
 
     if not enabled:
         return user
 
     user_id = str(user["user_id"])
-    allowed, hourly_remaining, daily_remaining = rate_limiter.check_rate_limit(user_id)
+    allowed, hourly_remaining, daily_remaining = rate_limiter.consume(user_id)
 
     if not allowed:
         raise HTTPException(
@@ -280,13 +298,10 @@ async def check_rate_limit(
             },
         )
 
-    # Record this request
-    rate_limiter.record_request(user_id)
-
     # Add rate limit info to user dict
     user["rate_limit"] = {
-        "hourly_remaining": hourly_remaining - 1,
-        "daily_remaining": daily_remaining - 1,
+        "hourly_remaining": hourly_remaining,
+        "daily_remaining": daily_remaining,
     }
 
     return user

@@ -157,3 +157,16 @@ docs/INTERNAL.md
 # Chainlit runtime
 .files/
 frontend/.files/
+
+# ============================================
+# Local tooling & personal docs
+# ============================================
+.claude/
+docs/interview_prep*.md
+log.txt
+# Logs in any subdirectory (parsers/, scrapers/, ...)
+logs/**/*.log
+logs/**/*.jsonl
+
+# Files pulled from the Modal volume (embeddings, parsed archives)
+data/modal_download/

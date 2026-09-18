@@ -29,10 +29,11 @@ class DossierDB:
     Each user has their own encrypted database file:
     - data/dossier/user_{uuid}.db
 
-    The encryption key is derived from the user's password:
-    - Key = PBKDF2(password, salt, iterations=256000)
-    - We never store the key - derived fresh each session
-    - User's password is their encryption key
+    Keying modes:
+    - raw_key (preferred): a 32-byte Data Encryption Key managed by
+      src.security.dossier_keys (envelope encryption; survives password changes)
+    - user_password (legacy): SQLCipher derives the key from the password;
+      only used to open old dossiers before they are migrated to a raw key
 
     Example usage:
         # Open user's dossier (requires their password)
@@ -51,20 +52,22 @@ class DossierDB:
     def __init__(
         self,
         user_id: str,
-        user_password: str,
+        user_password: Optional[str] = None,
         storage_path: Optional[str] = None,
         is_firm: bool = False,
-        firm_id: Optional[str] = None
+        firm_id: Optional[str] = None,
+        raw_key: Optional[bytes] = None,
     ):
         """
         Initialize encrypted dossier connection.
 
         Args:
             user_id: UUID of the user.
-            user_password: User's password (used to derive encryption key).
+            user_password: Legacy password key (SQLCipher-derived). Ignored when raw_key is given.
             storage_path: Path to dossier directory. Uses env default if None.
             is_firm: If True, this is a firm dossier (uses firm_id instead).
             firm_id: UUID of firm (only if is_firm=True).
+            raw_key: 32-byte DEK (envelope encryption). Preferred.
 
         Raises:
             ValueError: If password is empty or incorrect.
@@ -88,9 +91,15 @@ class DossierDB:
         # SQLCipher configuration
         self.iterations = int(os.getenv("SQLCIPHER_ITERATIONS", 256000))
 
+        if raw_key is None and not user_password:
+            raise ValueError("DossierDB requires raw_key or user_password")
+        if raw_key is not None and len(raw_key) != 32:
+            raise ValueError("raw_key must be 32 bytes")
+
         # Connection (lazy initialized)
         self._conn = None
         self._password = user_password
+        self._raw_key = raw_key
 
         # Don't connect yet - wait for first operation
         self._initialized = False
@@ -127,8 +136,10 @@ class DossierDB:
         self._conn = sqlcipher.connect(str(self.db_path))
         cursor = self._conn.cursor()
 
-        # Set encryption key (parameterized to prevent SQL injection)
-        cursor.execute("PRAGMA key = ?", (self._password,))
+        # Set encryption key. NOTE: SQLCipher PRAGMAs do not accept bound
+        # parameters (`PRAGMA key = ?` is a syntax error in sqlcipher3), so the
+        # value is embedded as a safely quoted literal.
+        cursor.execute(self._key_pragma("key"))
         cursor.execute("PRAGMA cipher_compatibility = 4")
 
         # Verify connection (will fail if wrong password)
@@ -145,6 +156,29 @@ class DossierDB:
             self._conn.commit()
 
         self._initialized = True
+
+    def _key_pragma(self, pragma: str) -> str:
+        """Build `PRAGMA key/rekey = ...` for the current keying mode."""
+        if self._raw_key is not None:
+            return f"PRAGMA {pragma} = \"x'{self._raw_key.hex()}'\""
+        escaped = self._password.replace("'", "''")
+        return f"PRAGMA {pragma} = '{escaped}'"
+
+    def rekey_to_raw(self, raw_key: bytes) -> None:
+        """
+        Re-encrypt the database with a raw 32-byte key (envelope migration).
+
+        Opens with the current credentials, runs `PRAGMA rekey`, and switches
+        this instance to raw-key mode.
+        """
+        if len(raw_key) != 32:
+            raise ValueError("raw_key must be 32 bytes")
+        self._connect()
+        cursor = self._conn.cursor()
+        cursor.execute(f"PRAGMA rekey = \"x'{raw_key.hex()}'\"")
+        self._conn.commit()
+        self._raw_key = raw_key
+        self._password = None
 
     def _create_schema(self, cursor) -> None:
         """

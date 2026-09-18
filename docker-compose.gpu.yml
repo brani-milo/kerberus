@@ -1,0 +1,15 @@
+# ===========================================
+# Optional NVIDIA GPU override for local development.
+# Usage:  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+# Kept out of docker-compose.yml because the reservation makes
+# `docker compose up` fail on machines without the NVIDIA runtime (e.g. macOS).
+# ===========================================
+services:
+  kerberus:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

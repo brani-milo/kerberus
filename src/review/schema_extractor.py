@@ -8,7 +8,6 @@ with citations for each field.
 import logging
 import json
 import os
-import re
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field
 import httpx

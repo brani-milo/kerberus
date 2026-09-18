@@ -16,10 +16,8 @@ import argparse
 import json
 import logging
 import sys
-import os
 import re
 from pathlib import Path
-from collections import defaultdict
 from typing import List, Dict, Generator, Optional
 from datetime import datetime
 
@@ -204,7 +202,8 @@ def build_decision_payload(chunk: dict) -> dict:
         "citations_cases": citations.get("cases", []) if isinstance(citations, dict) else [],
         "lower_court": metadata.get("lower_court"),
         "source": source,
-        "text_preview": create_text_preview(chunk.get("text", ""))
+        "text_preview": create_text_preview(chunk.get("text", "")),
+        "text": chunk.get("text", ""),  # full chunk text for reranking
     }
 
 

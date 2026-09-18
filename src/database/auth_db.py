@@ -10,7 +10,6 @@ This module provides connection management and operations for:
 SECURITY NOTE: This database does NOT contain sensitive legal content.
 All legal documents are stored in SQLCipher-encrypted databases (dossier_db.py).
 """
-import os
 import uuid
 import json
 import secrets
@@ -59,12 +58,8 @@ class AuthDB:
                              Uses environment variables if not provided.
         """
         if connection_string is None:
-            host = os.getenv("POSTGRES_HOST", "localhost")
-            port = os.getenv("POSTGRES_PORT", "5432")
-            db = os.getenv("POSTGRES_DB", "kerberus")
-            user = os.getenv("POSTGRES_USER", "kerberus_user")
-            password = os.getenv("POSTGRES_PASSWORD", "")
-            connection_string = f"postgresql://{user}:{password}@{host}:{port}/{db}"
+            from ..config import get_settings
+            connection_string = get_settings().postgres_dsn  # POSTGRES_* env vars / Docker secrets
 
         self.engine = create_engine(
             connection_string,
@@ -793,25 +788,38 @@ class AuthDB:
             )
         logger.info(f"Deactivated user {user_id}")
 
-    def invalidate_all_sessions(self, user_id: str) -> int:
+    def invalidate_all_sessions(self, user_id: str, except_token: Optional[str] = None) -> int:
         """
         Invalidate all sessions for a user (logout from all devices).
 
         Args:
             user_id: UUID of user.
+            except_token: Optional session token to keep active (e.g. the
+                          session performing a password change).
 
         Returns:
             Number of sessions invalidated.
         """
         with self.get_session() as session:
-            result = session.execute(
-                text("""
-                    UPDATE sessions
-                    SET is_active = FALSE
-                    WHERE user_id = :user_id AND is_active = TRUE
-                """),
-                {"user_id": user_id}
-            )
+            if except_token:
+                result = session.execute(
+                    text("""
+                        UPDATE sessions
+                        SET is_active = FALSE
+                        WHERE user_id = :user_id AND is_active = TRUE
+                          AND session_token <> :except_token
+                    """),
+                    {"user_id": user_id, "except_token": except_token}
+                )
+            else:
+                result = session.execute(
+                    text("""
+                        UPDATE sessions
+                        SET is_active = FALSE
+                        WHERE user_id = :user_id AND is_active = TRUE
+                    """),
+                    {"user_id": user_id}
+                )
             count = result.rowcount
         logger.info(f"Invalidated {count} sessions for user {user_id}")
         return count
@@ -962,6 +970,19 @@ class AuthDB:
                 )
             """))
 
+            # Dossier envelope keys (wrapped DEKs; see src/security/dossier_keys.py)
+            session.execute(text("""
+                CREATE TABLE IF NOT EXISTS dossier_keys (
+                    user_id UUID PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+                    wrapped_dek TEXT NOT NULL,
+                    kdf_salt TEXT NOT NULL,
+                    kdf_iterations INTEGER NOT NULL,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+                )
+            """))
+
             # Failed logins table (for account lockout)
             session.execute(text("""
                 CREATE TABLE IF NOT EXISTS failed_logins (
@@ -989,6 +1010,55 @@ class AuthDB:
             """))
 
         logger.info("Database schema initialized")
+
+    # ==========================================
+    # Dossier envelope keys
+    # ==========================================
+
+    def get_dossier_key(self, user_id: str) -> Optional[Dict]:
+        """Return the wrapped dossier key record for a user, or None."""
+        with self.get_session() as session:
+            row = session.execute(
+                text("""
+                    SELECT user_id, wrapped_dek, kdf_salt, kdf_iterations, version
+                    FROM dossier_keys WHERE user_id = CAST(:user_id AS UUID)
+                """),
+                {"user_id": user_id}
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "user_id": str(row[0]),
+            "wrapped_dek": row[1],
+            "kdf_salt": row[2],
+            "kdf_iterations": row[3],
+            "version": row[4],
+        }
+
+    def store_dossier_key(self, user_id: str, record: Dict) -> None:
+        """Insert or replace the wrapped dossier key for a user."""
+        now = datetime.now(timezone.utc)
+        with self.get_session() as session:
+            session.execute(
+                text("""
+                    INSERT INTO dossier_keys (user_id, wrapped_dek, kdf_salt, kdf_iterations, version, created_at, updated_at)
+                    VALUES (CAST(:user_id AS UUID), :wrapped_dek, :kdf_salt, :kdf_iterations, :version, :now, :now)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        wrapped_dek = EXCLUDED.wrapped_dek,
+                        kdf_salt = EXCLUDED.kdf_salt,
+                        kdf_iterations = EXCLUDED.kdf_iterations,
+                        version = EXCLUDED.version,
+                        updated_at = EXCLUDED.updated_at
+                """),
+                {
+                    "user_id": user_id,
+                    "wrapped_dek": record["wrapped_dek"],
+                    "kdf_salt": record["kdf_salt"],
+                    "kdf_iterations": int(record["kdf_iterations"]),
+                    "version": int(record.get("version", 1)),
+                    "now": now,
+                }
+            )
 
     def migrate_add_backup_codes_column(self) -> bool:
         """

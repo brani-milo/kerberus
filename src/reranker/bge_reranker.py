@@ -6,6 +6,8 @@ Optimized for CPU (faster than MPS for small batches).
 """
 
 import logging
+import os
+import threading
 from typing import List, Dict, Optional
 from datetime import datetime
 import numpy as np
@@ -29,7 +31,7 @@ class BGEReranker:
         self,
         model_name: str = "BAAI/bge-reranker-v2-m3",
         device: str = "cpu",
-        max_length: int = 512
+        max_length: Optional[int] = None
     ):
         """
         Initialize BGE-Reranker.
@@ -41,8 +43,13 @@ class BGEReranker:
         """
         self.model_name = model_name
         self.device = device
-        self.max_length = max_length
+        # Tokens per (query, document) pair. Cost is roughly linear in this; 384 keeps
+        # whole law articles and the opening of a decision chunk (RERANKER_MAX_LENGTH).
+        self.max_length = max_length or int(os.getenv("RERANKER_MAX_LENGTH", "384"))
         self._reranker = None
+        # The HuggingFace tokenizer is not thread-safe ("Already borrowed"); the
+        # search lanes call the reranker concurrently from worker threads.
+        self._lock = threading.Lock()
 
         logger.info(f"Initializing BGE-Reranker-v2-M3 (device={device})")
         self._load_model()
@@ -64,6 +71,14 @@ class BGEReranker:
         except Exception as e:
             logger.error(f"Failed to load reranker: {e}", exc_info=True)
             raise RuntimeError(f"Reranker initialization failed: {e}")
+
+    def _compute_scores(self, pairs: List[List[str]], max_length: Optional[int] = None) -> List[float]:
+        """Cross-encoder scores for [query, text] pairs (overridden by RemoteReranker)."""
+        with self._lock:
+            scores = self._reranker.compute_score(pairs, max_length=max_length or self.max_length)
+        if not isinstance(scores, list):
+            scores = scores.tolist() if hasattr(scores, "tolist") else [float(scores)]
+        return [float(s) for s in scores]
 
     def calculate_recency_score(self, year: int) -> float:
         """
@@ -174,12 +189,8 @@ class BGEReranker:
             # Prepare pairs for reranking
             pairs = [[query, doc['text']] for doc in documents]
 
-            # Compute scores
-            scores = self._reranker.compute_score(pairs, max_length=self.max_length)
-
-            # Ensure scores is a list
-            if not isinstance(scores, list):
-                scores = scores.tolist()
+            # Compute scores (local model or remote service, see RemoteReranker)
+            scores = self._compute_scores(pairs, self.max_length)
 
             # Add scores to documents with recency boost
             for doc, score in zip(documents, scores):
@@ -251,9 +262,10 @@ class BGEReranker:
                 'score_variance': 0.0
             }
 
-        # Calculate statistics using final_score
-        scores = [doc['final_score'] for doc in reranked]
-        top_score = scores[0]
+        # Statistics on the raw cross-encoder logit (calibrated in src/search/relevance.py)
+        from ..search.relevance import confidence_for
+        scores = [float(doc.get('base_score', doc.get('final_score', doc.get('score', 0.0))) or 0.0) for doc in reranked]
+        top_score = max(scores)
 
         if len(scores) > 1:
             score_variance = float(np.var(scores))
@@ -265,15 +277,13 @@ class BGEReranker:
         top_year = top_doc.get('year', 'unknown')
         case_id = top_doc.get('metadata', {}).get('case_id', 'unknown')
 
-        # Determine confidence with metadata context
-        if top_score > 0.75 and score_variance < 0.1:
-            confidence = 'HIGH'
+        # Determine confidence from the best raw score (on-point ≈ >= 0, related ≈ -6, unrelated ≈ -10)
+        confidence = confidence_for(top_score)
+        if confidence == 'HIGH':
             message = f'High confidence result ({case_id}, {top_year}, score: {top_score:.2f})'
-        elif top_score > 0.55:
-            confidence = 'MEDIUM'
+        elif confidence == 'MEDIUM':
             message = f'Moderate confidence ({case_id}, {top_year}, score: {top_score:.2f})'
         else:
-            confidence = 'LOW'
             message = f'Low confidence - manual verification recommended ({case_id}, {top_year}, score: {top_score:.2f})'
 
         return {
@@ -290,8 +300,14 @@ _reranker_instance: Optional[BGEReranker] = None
 
 
 def get_reranker(device: str = "cpu") -> BGEReranker:
-    """Get shared reranker instance."""
+    """Shared reranker: remote (MODEL_SERVICE_URL) or local model."""
     global _reranker_instance
     if _reranker_instance is None:
-        _reranker_instance = BGEReranker(device=device)
+        from ..config import get_settings
+        settings = get_settings()
+        if settings.model_service_url:
+            from .remote import RemoteReranker
+            _reranker_instance = RemoteReranker(settings.model_service_url, timeout=settings.model_service_timeout)
+        else:
+            _reranker_instance = BGEReranker(device=device)
     return _reranker_instance

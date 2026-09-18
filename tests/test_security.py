@@ -9,9 +9,8 @@ Covers:
 - Auth rate limiting
 """
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
-from datetime import datetime, timezone
 
 from src.api.main import app
 from src.api.deps import get_db, get_current_user, check_login_rate_limit
@@ -21,7 +20,6 @@ from src.database.auth_db import hash_password
 # No-op rate limit dependency for tests
 async def no_rate_limit():
     """No-op rate limit check for tests."""
-    pass
 
 
 # ============================================
@@ -39,6 +37,7 @@ def mock_db():
         "mfa_enabled": False,
     }
     mock.get_failed_login_count.return_value = 0
+    mock.get_dossier_key.return_value = None  # no dossier key to re-wrap
     return mock
 
 

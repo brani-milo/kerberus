@@ -2,7 +2,6 @@
 Base scraper class with state management and incremental updates.
 """
 
-import os
 import json
 import logging
 from datetime import datetime, date

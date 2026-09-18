@@ -10,13 +10,12 @@ Provides a web UI for:
 """
 
 import os
-import asyncio
 import logging
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Optional
 
 import chainlit as cl
-from chainlit.input_widget import Select, TextInput
+from chainlit.input_widget import Select
 
 # Add project root to path
 import sys

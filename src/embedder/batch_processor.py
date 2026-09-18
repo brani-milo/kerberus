@@ -9,7 +9,7 @@ Provides shared utilities for batch embedding operations including:
 
 import logging
 import re
-from typing import List, Dict, Set, Optional, Callable
+from typing import List, Dict, Set, Callable
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)

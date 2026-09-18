@@ -111,7 +111,8 @@ def build_fedlex_payload(article: dict) -> dict:
         "source": article.get("source", "fedlex"),
         "is_partial": article.get("is_partial", False),
         "paragraph_number": article.get("paragraph_number"),
-        "text_preview": text_preview
+        "text_preview": text_preview,
+        "article_text": text,  # full text: the reranker scores this, the LLM reads it
     }
 
 

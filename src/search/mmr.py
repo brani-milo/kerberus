@@ -74,10 +74,18 @@ def _get_document_key(doc: Dict) -> str:
     """
     payload = doc.get('payload', {})
 
-    # Try different document type identifiers
-    # Fedlex articles - group by law (sr_number), not individual articles
+    # Fedlex articles: one key per ARTICLE (language-agnostic), not per law.
+    # Grouping by law collapsed OR 337 / 337a / 336c into a single slot and forced
+    # the codex quota to be filled with unrelated laws.
     if payload.get('sr_number'):
-        return payload.get('sr_number')
+        base_id = payload.get('base_id')
+        if base_id:
+            # Long articles are embedded per paragraph (SR_101_Art_196_p14): collapse
+            # the paragraphs, the LLM receives the whole article anyway.
+            import re
+            return re.sub(r'_p\d+$', '', str(base_id))
+        article = payload.get('article_number')
+        return f"{payload['sr_number']}_Art_{article}" if article else str(payload['sr_number'])
 
     # Court decisions - normalize for consistent deduplication
     if payload.get('decision_id'):
@@ -196,6 +204,12 @@ def apply_mmr(
         query_embedding is not None
     )
 
+    # Metadata mode: RRF scores are tiny (~1/60) and almost flat, so an unscaled
+    # diversity penalty (0.7 for "same law") dominated the relevance term and
+    # MMR effectively selected one article per law before any second article.
+    # Normalise relevance to [0, 1] so lambda means what it says.
+    max_score = max(float(c.get('score', 0) or 0) for c in candidates) or 1.0
+
     try:
         # Always include top result (highest relevance)
         selected = [candidates[0]]
@@ -216,8 +230,8 @@ def apply_mmr(
                     )
                 else:
                     # Metadata-based MMR (fallback for hybrid search)
-                    # Use retrieval score as relevance proxy
-                    relevance = candidate.get('score', 0.5)
+                    # Use the normalised retrieval score as relevance proxy
+                    relevance = float(candidate.get('score', 0) or 0) / max_score
                     max_similarity = max(
                         _metadata_similarity(candidate, selected_doc)
                         for selected_doc in selected

@@ -26,13 +26,21 @@ class DossierSearchService:
     - Metadata in Qdrant links back to encrypted doc_id/chunk_id
     """
 
-    def __init__(self, user_id: str, user_password: str, is_firm: bool = False, firm_id: Optional[str] = None):
+    def __init__(
+        self,
+        user_id: str,
+        user_password: Optional[str] = None,
+        is_firm: bool = False,
+        firm_id: Optional[str] = None,
+        raw_key: Optional[bytes] = None,
+    ):
         """
         Initialize dossier search service.
 
         Args:
             user_id: UUID of user.
-            user_password: User's password (for decrypting dossier).
+            user_password: Legacy password key (only for un-migrated dossiers).
+            raw_key: 32-byte DEK from DossierKeyManager (preferred).
             is_firm: If True, use firm dossier.
             firm_id: UUID of firm (required if is_firm=True).
         """
@@ -53,7 +61,8 @@ class DossierSearchService:
             user_id=user_id,
             user_password=user_password,
             is_firm=is_firm,
-            firm_id=firm_id
+            firm_id=firm_id,
+            raw_key=raw_key,
         )
 
         # Ensure collection exists

@@ -25,13 +25,11 @@ import argparse
 import logging
 import subprocess
 import sys
-import os
 import time
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import List, Optional, Tuple
-from multiprocessing import Pool, cpu_count
+from typing import List, Tuple
 from tqdm import tqdm
 
 # Add project root to path
