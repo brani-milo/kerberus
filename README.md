@@ -6,11 +6,11 @@
   **Open-source legal research assistant for Swiss law (DE / FR / IT)**
 
   Hybrid retrieval over federal laws and court decisions, a guarded three-model LLM pipeline,
-  encrypted client dossiers, and Swiss-hosted inference.
+  encrypted conversations and client dossiers, and Swiss-hosted inference.
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
   [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
-  [![CI](https://img.shields.io/badge/tests-116%20passing-brightgreen.svg)](.github/workflows/ci.yml)
+  [![CI](https://img.shields.io/badge/tests-132%20passing-brightgreen.svg)](.github/workflows/ci.yml)
 </div>
 
 ---
@@ -42,8 +42,8 @@ Requirements: Docker, Python 3.13, `libsqlcipher` (macOS: `brew install sqlciphe
 
 ```bash
 git clone https://github.com/brani-milo/kerberus && cd kerberus
-make setup                      # venv + dependencies + .env from .env.example
-# edit .env: INFOMANIAK_PRODUCT_ID, INFOMANIAK_API_KEY, CHAINLIT_AUTH_SECRET, POSTGRES_PASSWORD
+make setup                      # venv + dependencies + .env (auto-generates CONVERSATION_ENCRYPTION_KEY & auth secret)
+# edit .env: INFOMANIAK_PRODUCT_ID, INFOMANIAK_API_KEY, POSTGRES_PASSWORD
 make start                      # Qdrant, PostgreSQL, Redis, model service, UI and API (docker compose)
 make db-init                    # schema migrations + Qdrant collections
 ```
@@ -131,9 +131,9 @@ Token cost stays flat over long conversations.
 
 | Store | Contents |
 |---|---|
-| **Qdrant** | `codex` (law articles) and `library` (decision chunks): dense 1024-d + sparse vectors, metadata, full chunk text |
-| **PostgreSQL** | users, sessions, usage, wrapped dossier keys, the **document store** (full decisions and laws keyed by id, citation and normalised aliases), encrypted conversation history |
-| **SQLCipher** | one AES-256 database per user for uploaded documents (envelope-encrypted, see below) |
+| **Qdrant** | `codex` (law articles) and `library` (decision chunks): dense 1024-d + sparse vectors, metadata, full chunk text; `dossier_user_*`: vectors + opaque IDs only (zero plaintext) |
+| **PostgreSQL** | users, sessions, usage, wrapped dossier keys (`dossier_keys`), the **document store** (full decisions and laws keyed by id, citation and normalised aliases), and `AES-256-GCM` + AAD encrypted conversation history |
+| **SQLCipher** | one AES-256 database per user for uploaded client documents (zero-knowledge envelope encryption, see below) |
 | **Redis** | rate limits, pending MFA secrets |
 
 The document store replaces per-request filesystem lookups. Load it with `make load-documents` after each parse
@@ -145,16 +145,21 @@ run; if it is unreachable the app falls back to an in-memory index of the parsed
 replicas (`MODEL_SERVICE_URL`). Without it, each process loads the models itself (CUDA → MPS → CPU auto-detect).
 Set `HF_HUB_OFFLINE=1` once the weights are cached so a stalled CDN connection cannot block start-up.
 
-### Security
+### Security & Client–Lawyer Confidentiality
 
-- **Envelope-encrypted dossiers.** Each user gets a random 256-bit data key; SQLCipher opens with it as a raw key.
-  The data key is wrapped with a PBKDF2-derived key from the password and stored in `dossier_keys`. Changing the
-  password re-wraps the key instead of orphaning the dossier; legacy password-keyed dossiers migrate on first unlock.
+- **Envelope-encrypted dossiers (`SQLCipher` + `AES-256-GCM`).** Each user gets a random 256-bit Data Encryption Key (DEK); SQLCipher opens with it as a raw key.
+  The DEK is wrapped (`AES-256-GCM` with `user_id` as AAD) using a Key Encryption Key derived from the lawyer's password (`PBKDF2-HMAC-SHA256`, 600,000 iterations) and stored in `dossier_keys`. Changing the
+  password re-wraps the DEK instead of orphaning the dossier; legacy password-keyed dossiers migrate transparently on first unlock.
+  Qdrant stores only numeric vectors and opaque document/chunk IDs—no plaintext titles or previews ever leave SQLCipher.
+  Points written by earlier versions are cleaned with `python scripts/scrub_dossier_payloads.py` (no re-embedding).
+- **Encrypted conversations (`AES-256-GCM` + AAD).** Conversation threads, messages, and feedback in PostgreSQL are
+  encrypted with `AES-256-GCM` (`CONVERSATION_ENCRYPTION_KEY`, HKDF-SHA256 derived) and cryptographically bound via Associated Authenticated Data
+  (AAD) to their owning `user_id` and `thread_id`, preventing cross-user or cross-thread ciphertext substitution. Conversations can be reopened from the sidebar and continued. Reopening checks thread ownership and requires the current login to have passed the TOTP check (remembered per login token for `MFA_SESSION_TTL_SECONDS`), and only then is the history decrypted and shown. Because Chainlit's login token is issued before the second factor, nothing it can reach reveals content: thread names are neutral dates, thread endpoints return no messages, and session data stored with a thread is reduced to UI settings. Deleting a thread hard-deletes all underlying message ciphertexts.
 - **Authentication.** bcrypt passwords, opaque session tokens in PostgreSQL, mandatory TOTP MFA with one-time backup
   codes, lockout after five failed attempts, IP rate limits on login and registration. The TOTP secret never leaves
   the server.
-- **PII scrubbing** (Presidio + Swiss recognisers) before any text reaches a model; unsupported languages fall back to
-  the German analyser so pattern recognisers still run.
+- **PII scrubbing** (Presidio + Swiss recognisers for AHV, IBAN, phone numbers, postcodes) before any text reaches a model; unsupported languages fall back to
+  the German analyser so pattern recognisers still run. User messages and MFA codes are never logged in plaintext.
 - **Transport and headers.** CSP, frame and content-type protections on the API; HTML from retrieved documents is
   escaped, model output is stripped of active HTML before rendering.
 - **Secrets** via environment or Docker secrets files (`*_FILE`); never in the repository or the image.
@@ -245,7 +250,7 @@ flagged unrelated federal acts (agriculture, road traffic) being cited next to t
 root causes turned out to be the table-of-contents parser bug and the one-article-per-law deduplication rather than
 the language model.
 
-Unit and API tests (`pytest tests/`, 116 tests) run against in-memory doubles for PostgreSQL, Qdrant and the LLMs;
+Unit and API tests (`pytest tests/`, 132 tests) run against in-memory doubles for PostgreSQL, Qdrant and the LLMs;
 only the embedder and reranker tests download weights.
 
 ---
@@ -274,12 +279,13 @@ Rate limits default to 50 requests/hour and 300/day per user (Redis-backed, atom
 
 ## Configuration
 
-Copy `.env.example` to `.env`. The important knobs:
+Copy `.env.example` to `.env` (or run `make setup`, which generates `CONVERSATION_ENCRYPTION_KEY` and `CHAINLIT_AUTH_SECRET`). The important knobs:
 
 | Variable | Purpose |
 |---|---|
 | `INFOMANIAK_PRODUCT_ID`, `INFOMANIAK_API_KEY` | Swiss-hosted inference (`USE_MOCK_AI=true` to run without) |
 | `INFOMANIAK_GUARD_MODEL`, `INFOMANIAK_ANALYSIS_MODEL` | Infomaniak product model names: `mistral24b`, `mistral3`, `qwen3` (long names are rejected with HTTP 422) |
+| `CONVERSATION_ENCRYPTION_KEY`, `DOSSIER_KDF_ITERATIONS` | `AES-256-GCM` conversation encryption key (HKDF-derived, AAD-bound) and PBKDF2 iterations (600,000) for dossier envelope keys |
 | `POSTGRES_*`, `QDRANT_*`, `REDIS_*` | storage; `QDRANT_API_KEY` is honoured when set |
 | `MODEL_SERVICE_URL` | use the shared model service instead of loading weights per process |
 | `RELEVANCE_GATE_ENABLED`, `RERANK_TOP_MARGIN`, `RERANK_MIN_LOGIT` | retrieval precision (set the gate to `false` to reproduce the pre-v0.3 quotas) |
@@ -321,7 +327,7 @@ All settings are read through one [`Settings`](src/config.py) object; Docker sec
 | Reranking | BGE-Reranker-v2-M3 cross-encoder with recency boost |
 | Vector store | Qdrant, hybrid search with reciprocal rank fusion |
 | Relational store | PostgreSQL 15 (auth, usage, document store, encrypted conversations) |
-| Encrypted storage | SQLCipher, AES-256, envelope keys |
+| Encrypted storage | SQLCipher (AES-256 dossier DBs, envelope keys) + AES-256-GCM with AAD (conversations) |
 | LLMs | Qwen3-235B (analysis), Mistral-Small-3.2-24B (guard, reformulation) via Infomaniak AI |
 | PII | Microsoft Presidio + spaCy, Swiss recognisers |
 | API / UI | FastAPI, Chainlit |

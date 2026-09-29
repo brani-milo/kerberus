@@ -15,7 +15,14 @@ setup: ## Initial project setup
 	python3 -m venv venv
 	. venv/bin/activate && pip install --upgrade pip
 	. venv/bin/activate && pip install -r requirements.txt
-	cp .env.example .env
+	@if [ ! -f .env ]; then \
+		cp .env.example .env && \
+		chmod 600 .env && \
+		. venv/bin/activate && python -c 'from pathlib import Path; from cryptography.fernet import Fernet; import secrets; p = Path(".env"); t = p.read_text(); t = t.replace("CONVERSATION_ENCRYPTION_KEY=", "CONVERSATION_ENCRYPTION_KEY=" + Fernet.generate_key().decode()); t = t.replace("CHAINLIT_AUTH_SECRET=generate_with_chainlit_create_secret", "CHAINLIT_AUTH_SECRET=" + secrets.token_urlsafe(32)); p.write_text(t)'; \
+		echo "Created .env (chmod 600) with freshly generated encryption keys"; \
+	else \
+		echo ".env already exists — preserving existing keys and configuration"; \
+	fi
 	$(MAKE) init-dossier
 	@echo "Setup complete!"
 	@echo "Next steps:"

@@ -21,6 +21,8 @@ import html
 import logging
 import base64
 import re
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -40,6 +42,7 @@ from src.review import DocumentProcessor
 from src.database.auth_db import get_auth_db
 from src.auth.service import AuthService
 from src.api.deps import get_rate_limiter
+from src.auth.mfa_session import remember_mfa, mfa_passed
 
 # Conversation persistence (encrypted)
 from src.database.encrypted_data_layer import get_encrypted_data_layer, EncryptedChainlitDataLayer
@@ -116,6 +119,38 @@ def get_auth_service() -> AuthService:
         db, _ = get_auth_components()
         _auth_service = AuthService(db)
     return _auth_service
+
+
+def _session_token() -> Optional[str]:
+    """Login token of the current websocket session (issued at password login)."""
+    try:
+        return cl.context.session.token
+    except Exception:
+        return None
+
+
+def mfa_ok(user) -> bool:
+    """
+    True if this login has passed the TOTP check. Accounts without MFA never pass:
+    they must set it up first. The check is remembered server-side per login token,
+    so reopening a conversation does not ask again, while a new login always does.
+    """
+    if not user:
+        return False
+    md = user.metadata or {}
+    if not md.get("mfa_required"):
+        return False
+    if md.get("mfa_verified"):
+        return True
+    if mfa_passed(_session_token(), md.get("user_id")):
+        md["mfa_verified"] = True
+        return True
+    return False
+
+
+def _mark_mfa_passed(user) -> None:
+    user.metadata["mfa_verified"] = True
+    remember_mfa(_session_token(), user.metadata.get("user_id"))
 
 
 @cl.password_auth_callback
@@ -277,19 +312,16 @@ async def persist_messages(user_message: str, assistant_message: str) -> None:
             return
 
         user_id = user.metadata.get("user_id", user.identifier)
-        thread_id = cl.user_session.get("thread_id")
 
-        # Create new thread if needed
-        if not thread_id:
-            # Generate thread name from first message
-            thread_name = user_message[:50] + "..." if len(user_message) > 50 else user_message
-            thread_id = await data_layer.create_thread(
-                user_id=user_id,
-                name=thread_name,
-                metadata={"mode": "assistant"}
-            )
-            cl.user_session.set("thread_id", thread_id)
+        # Save into the thread Chainlit shows in the sidebar for this session, so the
+        # conversation can be reopened. (The data layer gives it a neutral name.)
+        thread_id = getattr(cl.context.session, "thread_id", None) or cl.user_session.get("thread_id")
+        if thread_id:
+            await data_layer.update_thread(thread_id=thread_id, user_id=user_id, tags=None)
+        else:
+            thread_id = await data_layer.create_thread(user_id=user_id, metadata={"mode": "assistant"})
             logger.debug(f"Created new thread: {thread_id}")
+        cl.user_session.set("thread_id", thread_id)
 
         # Save messages
         await data_layer.create_message(
@@ -353,7 +385,6 @@ def format_decision_result(result: dict, rank: int) -> str:
         year = result.get('year', payload.get('year', ''))
     if not year or year == '2000':
         # Try to extract from decision_id like "BGer 001 1C-346-2008 2009-02-20"
-        import re
         date_match = re.search(r'(\d{4})-\d{2}-\d{2}', str(decision_id) or str(case_id))
         if date_match:
             year = date_match.group(1)
@@ -523,6 +554,15 @@ async def handle_mfa_verification(code: str):
     if await verify_mfa_code(user.metadata, clean_code):
         # Complete the login
         await complete_mfa_login(user)
+        _mark_mfa_passed(user)
+
+        # Opened from the sidebar: continue that conversation
+        pending_thread = cl.user_session.get("pending_resume_thread_id")
+        if pending_thread:
+            cl.user_session.set("pending_resume_thread_id", None)
+            await cl.Message(content="✅ **Authentication successful!**").send()
+            await restore_thread(pending_thread)
+            return
 
         # Show success and continue to main app
         await cl.Message(content="✅ **Authentication successful!**\n\n_Loading KERBERUS..._").send()
@@ -577,53 +617,104 @@ _Make sure to enter the current 6-digit code, or use a backup code (format: XXXX
 @cl.on_chat_resume
 async def on_chat_resume(thread):
     """
-    Resume a previous conversation from encrypted storage.
+    Reopen a conversation from the sidebar.
 
-    This is called when a user clicks on a previous thread in the sidebar.
-    The thread parameter contains the thread data from the data layer.
+    Order matters: ownership first, then the TOTP check, and only then is the
+    history decrypted and shown (Chainlit's own resume sends no message content,
+    see EncryptedChainlitDataLayer.get_thread).
+    """
+    user = cl.user_session.get("user")
+    current_user_id = user.metadata.get("user_id", user.identifier) if user else None
+    thread_owner = thread.get("userId") or thread.get("user_id")
+    if not current_user_id or (thread_owner and str(thread_owner) != str(current_user_id)):
+        logger.warning(f"Unauthorized resume attempt for thread {thread.get('id')} by user {current_user_id}")
+        await cl.Message(content="❌ Unauthorized to access this conversation.").send()
+        return
+
+    if not mfa_ok(user):
+        # No history before the second factor. The prompt itself must go into the
+        # resume payload: messages sent here are wiped by Chainlit's resume event.
+        cl.user_session.set("pending_resume_thread_id", thread.get("id"))
+        if user.metadata.get("mfa_required"):
+            cl.user_session.set("mode", "mfa_pending")
+            prompt = ("# 🔐 Two-Factor Authentication Required\n\n"
+                      "Enter your 6-digit code to open this conversation.\n\n"
+                      "_Or enter a backup code (format: XXXX-XXXX)._")
+        else:
+            cl.user_session.set("mode", "mfa_setup_required")
+            prompt = ("# 🔐 Two-Factor Authentication Required\n\n"
+                      "Set up two-factor authentication to open your conversations: "
+                      "send any message to get the setup button.")
+        now = datetime.now(timezone.utc).isoformat()
+        thread["steps"] = [{
+            "id": str(uuid.uuid4()), "threadId": thread.get("id"), "parentId": None,
+            "name": "KERBERUS", "type": "assistant_message", "output": prompt, "input": "",
+            "createdAt": now, "start": now, "end": now, "streaming": False, "isError": False,
+            "waitForAnswer": False, "showInput": False, "metadata": {}, "language": None,
+        }]
+        return
+
+    # Chainlit sends thread["steps"] to the browser right AFTER this handler returns
+    # (and replaces the message list with them), so the history goes in there.
+    await restore_thread(thread.get("id"), resume_payload=thread)
+
+
+async def restore_thread(thread_id: str, resume_payload: Optional[dict] = None) -> None:
+    """
+    Show a stored conversation and make it the active one. Call only after the TOTP check.
+
+    resume_payload: the thread dict Chainlit is about to send to the browser (resume
+    handler). The history is put into its steps; anything sent as a message now would be
+    wiped by that resume event. Without it (resume completed after a TOTP prompt),
+    the history is sent as regular messages.
     """
     global doc_processor
-
-    logger.info(f"Resuming thread: {thread.get('id', 'unknown')}")
-
-    # Initialize components lazily
     if doc_processor is None:
         doc_processor = DocumentProcessor()
 
-    # Restore chat history from thread messages
-    chat_history = []
     data_layer = get_data_layer()
-
-    if data_layer:
+    messages = []
+    if data_layer and thread_id:
         try:
-            messages = await data_layer.get_messages(thread.get("id", ""))
-            for msg in messages:
-                if msg["role"] in ["user", "assistant"]:
-                    chat_history.append({
-                        "role": msg["role"],
-                        "content": msg["content"]
-                    })
+            messages = await data_layer.get_messages(thread_id)
         except Exception as e:
             logger.error(f"Failed to restore messages: {e}")
 
-    # Set session state
+    user = cl.user_session.get("user")
+    chat_history, steps = [], []
+    for m in messages:
+        if m["role"] not in ("user", "assistant"):
+            continue
+        chat_history.append({"role": m["role"], "content": m["content"]})
+        is_user = m["role"] == "user"
+        content = escape_untrusted(m["content"]) if is_user else sanitize_llm_html(m["content"])
+        if resume_payload is not None:
+            steps.append({
+                "id": m["id"], "threadId": thread_id, "parentId": None,
+                "name": user.identifier if is_user else "KERBERUS",
+                "type": "user_message" if is_user else "assistant_message",
+                "output": content, "input": "", "createdAt": m.get("created_at"),
+                "start": m.get("created_at"), "end": m.get("created_at"),
+                "streaming": False, "isError": False, "waitForAnswer": False,
+                "showInput": False, "metadata": {}, "language": None,
+            })
+        elif is_user:
+            await cl.Message(content=content, type="user_message", author=user.identifier).send()
+        else:
+            await cl.Message(content=content).send()
+    if resume_payload is not None:
+        resume_payload["steps"] = steps
+
     cl.user_session.set("mode", "assistant")
-    cl.user_session.set("chat_history", chat_history[-10:])  # Keep last 10 turns
-    cl.user_session.set("thread_id", thread.get("id"))
+    cl.user_session.set("chat_history", chat_history[-10:])
+    cl.user_session.set("previous_context", None)
+    cl.user_session.set("thread_id", thread_id)
 
-    # Show resume message
-    thread_name = thread.get("name", "previous conversation")
-    msg_count = len(chat_history)
-
-    await cl.Message(
-        content=f"""# 🛡️ **KERBERUS** - Conversation Resumed
-
-_Restored **{msg_count}** messages from "{thread_name}"._
-
----
-
-Continue your legal research below. Just type your question."""
-    ).send()
+    if resume_payload is None:
+        await cl.Message(
+            content=f"_Conversation resumed ({len(chat_history)} messages). Continue with your next question._",
+            author="system",
+        ).send()
 
 
 # =============================================================================
@@ -636,7 +727,7 @@ async def on_chat_start():
 
     # Check if user needs MFA verification
     user = cl.user_session.get("user")
-    if user and user.metadata.get("mfa_required") and not user.metadata.get("mfa_verified"):
+    if user and user.metadata.get("mfa_required") and not mfa_ok(user):
         cl.user_session.set("mode", "mfa_pending")
         await cl.Message(
             content="""# 🔐 Two-Factor Authentication Required
@@ -865,6 +956,12 @@ _Click the button below to begin:_""",
         actions=[get_start_button()]
     ).send()
     logger.info(f"MFA enabled for user: {user.identifier}")
+    _mark_mfa_passed(user)
+
+    pending_thread = cl.user_session.get("pending_resume_thread_id")
+    if pending_thread:
+        cl.user_session.set("pending_resume_thread_id", None)
+        await restore_thread(pending_thread)
 
 
 async def start_mfa_setup():
@@ -918,7 +1015,7 @@ Once you've added it to your authenticator, click "I've scanned it" above and en
 @cl.on_message
 async def on_message(message: cl.Message):
     mode = cl.user_session.get("mode", "start")
-    logger.info(f"on_message: mode={mode}, text={message.content[:50]}...")
+    logger.debug(f"on_message: mode={mode}, length={len(message.content)}")
     text = message.content.strip()
     lower_text = text.lower()
 

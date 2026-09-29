@@ -380,3 +380,125 @@ class TestFailedLoginTracking:
             count = db.get_failed_login_count("test@example.com")
 
             assert count == 3
+
+
+# ============================================
+# Conversation Encryption & AAD Binding Tests
+# ============================================
+
+class TestConversationEncryption:
+    """Test AES-256-GCM conversation encryption and AAD cross-user isolation."""
+
+    def test_aes_gcm_roundtrip_with_aad(self):
+        """Ciphertext encrypted for a specific user/thread decrypts with matching AAD."""
+        from cryptography.fernet import Fernet
+        from src.database.encrypted_data_layer import ConversationEncryptor
+
+        key = Fernet.generate_key().decode()
+        encryptor = ConversationEncryptor(key=key)
+
+        aad_lawyer_a = "thread:1111:user:lawyer-a"
+        ciphertext = encryptor.encrypt("Confidential client strategy for Hans Meier", aad=aad_lawyer_a)
+
+        assert ciphertext.startswith("v2:")
+        assert "Hans Meier" not in ciphertext
+        assert encryptor.decrypt(ciphertext, aad=aad_lawyer_a) == "Confidential client strategy for Hans Meier"
+
+    def test_aad_mismatch_blocks_cross_user_substitution(self):
+        """Swapping ciphertext to another user or thread must fail authentication."""
+        from cryptography.fernet import Fernet
+        from src.database.encrypted_data_layer import ConversationEncryptor
+
+        key = Fernet.generate_key().decode()
+        encryptor = ConversationEncryptor(key=key)
+
+        ciphertext = encryptor.encrypt(
+            "Privileged M&A advice",
+            aad="thread:1111:user:lawyer-a",
+        )
+
+        # Attacker moves ciphertext into lawyer-b's thread
+        decrypted_wrong_user = encryptor.decrypt(
+            ciphertext,
+            aad="thread:2222:user:lawyer-b",
+        )
+        assert decrypted_wrong_user == "[Decryption failed]"
+
+    def test_legacy_fernet_backward_compatibility(self):
+        """Legacy v1 Fernet ciphertexts remain readable after upgrading to v2 AES-256-GCM."""
+        import base64
+        from cryptography.fernet import Fernet
+        from src.database.encrypted_data_layer import ConversationEncryptor
+
+        key = Fernet.generate_key().decode()
+        legacy_token = base64.urlsafe_b64encode(
+            Fernet(key.encode()).encrypt(b"Legacy conversation message")
+        ).decode("utf-8")
+
+        encryptor = ConversationEncryptor(key=key)
+        assert encryptor.decrypt(legacy_token, aad="thread:any:user:any") == "Legacy conversation message"
+
+
+# ============================================
+# Dossier Zero-Knowledge Qdrant Payload Tests
+# ============================================
+
+class TestDossierZeroKnowledgePayloads:
+    """Verify Qdrant receives no plaintext titles or text previews for encrypted dossiers."""
+
+    def test_qdrant_payload_contains_no_plaintext(self):
+        """add_document must not store title or text_preview in Qdrant payloads."""
+        from src.search.dossier_search import DossierSearchService
+
+        service = DossierSearchService.__new__(DossierSearchService)
+        service.user_id = "lawyer-123"
+        service.is_firm = False
+        service.firm_id = None
+        service.collection_name = "dossier_user_lawyer-123"
+        service.embedder = MagicMock()
+        service.embedder._encode_single.return_value = {"dense": [0.1] * 4, "sparse": {}}
+        service.qdrant = MagicMock()
+        service.dossier = MagicMock()
+
+        doc_id = service.add_document(
+            title="Secret Client Mandate - UBS Settlement",
+            content="The client agreed to a confidential settlement of CHF 2,500,000.",
+            doc_type="contract",
+            language="en",
+        )
+
+        service.qdrant.upsert_points.assert_called_once()
+        _, points = service.qdrant.upsert_points.call_args[0]
+        assert len(points) == 1
+        payload = points[0]["payload"]
+
+        assert "title" not in payload
+        assert "text_preview" not in payload
+        assert payload["doc_id"] == doc_id
+        assert payload["embedding_id"] == f"{doc_id}_chunk_0"
+
+        # Verify search resolves title and preview from encrypted SQLCipher DossierDB
+        service.qdrant.search_hybrid.return_value = [{"id": f"{doc_id}_chunk_0", "score": 0.91, "payload": payload}]
+        service.dossier.get_chunks_by_embedding_ids.return_value = [{
+            "chunk_id": "c1",
+            "doc_id": doc_id,
+            "chunk_index": 0,
+            "content": "The client agreed to a confidential settlement of CHF 2,500,000.",
+            "embedding_id": f"{doc_id}_chunk_0",
+            "doc_title": "Secret Client Mandate - UBS Settlement",
+            "doc_type": "contract",
+        }]
+        service.dossier.get_document.return_value = {
+            "doc_id": doc_id,
+            "title": "Secret Client Mandate - UBS Settlement",
+            "content": "The client agreed to a confidential settlement of CHF 2,500,000.",
+            "doc_type": "contract",
+            "language": "en",
+            "metadata": {},
+        }
+
+        results = service.search("settlement")
+        assert len(results) == 1
+        assert results[0]["title"] == "Secret Client Mandate - UBS Settlement"
+        assert "CHF 2,500,000" in results[0]["text_preview"]
+

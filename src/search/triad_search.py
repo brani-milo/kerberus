@@ -611,7 +611,7 @@ class TriadSearch:
             if collection_name == 'codex' and lane_filters and 'year_range' in lane_filters:
                 del lane_filters['year_range']
 
-            logger.info(f"Searching {collection_name} with query: {query[:50]}...")
+            logger.info(f"Searching {collection_name} (query length={len(query)})")  # never log query text
             candidates = await asyncio.to_thread(self.vector_db.search_hybrid,
                 collection_name=collection_name,
                 dense_vector=query_vectors['dense'],

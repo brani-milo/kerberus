@@ -133,7 +133,7 @@ class DossierSearchService:
                 "embedding_id": embedding_id
             })
 
-            # Prepare Qdrant point
+            # Prepare Qdrant point (zero-knowledge: no plaintext title or text_preview in Qdrant)
             vector_points.append({
                 "id": embedding_id,
                 "vector": {
@@ -143,10 +143,9 @@ class DossierSearchService:
                 "payload": {
                     "doc_id": doc_id,
                     "chunk_index": idx,
-                    "title": title,
+                    "embedding_id": embedding_id,
                     "doc_type": doc_type,
                     "language": language,
-                    "text_preview": chunk_text[:200],
                     "user_id": self.user_id if not self.is_firm else None,
                     "firm_id": self.firm_id if self.is_firm else None
                 }
@@ -247,23 +246,53 @@ class DossierSearchService:
                 filters=filters if filters else None
             )
 
+        # Resolve decrypted chunk texts and titles from SQLCipher
+        embedding_ids = []
+        for res in qdrant_results:
+            payload = res.get("payload", {})
+            emb_id = self._embedding_id(res)
+            if emb_id:
+                embedding_ids.append(emb_id)
+
+        chunks_by_emb_id: Dict[str, Dict] = {}
+        if embedding_ids and hasattr(self.dossier, "get_chunks_by_embedding_ids"):
+            try:
+                for c in self.dossier.get_chunks_by_embedding_ids(embedding_ids):
+                    if c.get("embedding_id"):
+                        chunks_by_emb_id[str(c["embedding_id"])] = c
+            except Exception as e:
+                logger.warning(f"Failed to load decrypted chunks from dossier: {e}")
+
         # Enrich with content from encrypted database
         results = []
+        doc_cache: Dict[str, Optional[Dict]] = {}
         for res in qdrant_results:
             payload = res.get("payload", {})
             doc_id = payload.get("doc_id")
+            chunk_idx = payload.get("chunk_index")
+            emb_id = self._embedding_id(res)
 
-            # Get full content from encrypted storage
-            full_doc = self.dossier.get_document(doc_id) if doc_id else None
+            # Get full document from encrypted storage (cached per doc_id)
+            if doc_id not in doc_cache:
+                doc_cache[doc_id] = self.dossier.get_document(doc_id) if doc_id else None
+            full_doc = doc_cache.get(doc_id)
+            decrypted_chunk = chunks_by_emb_id.get(emb_id, {})
+
+            chunk_text = decrypted_chunk.get("content") or payload.get("text_preview") or ""
+            title = (
+                decrypted_chunk.get("doc_title")
+                or (full_doc.get("title") if full_doc else None)
+                or payload.get("title")
+            )
 
             results.append({
                 "score": res.get("score", 0),
                 "doc_id": doc_id,
-                "chunk_index": payload.get("chunk_index"),
-                "title": payload.get("title"),
-                "doc_type": payload.get("doc_type"),
-                "language": payload.get("language"),
-                "text_preview": payload.get("text_preview"),
+                "chunk_index": chunk_idx,
+                "title": title,
+                "doc_type": payload.get("doc_type") or (full_doc.get("doc_type") if full_doc else None),
+                "language": payload.get("language") or (full_doc.get("language") if full_doc else None),
+                "text_preview": chunk_text[:200] if chunk_text else None,
                 "full_content": full_doc.get("content") if full_doc else None,
                 "metadata": full_doc.get("metadata") if full_doc else {}
             })
@@ -294,6 +323,20 @@ class DossierSearchService:
             Document dict or None.
         """
         return self.dossier.get_document(doc_id)
+
+    @staticmethod
+    def _embedding_id(res: Dict) -> str:
+        """
+        SQLCipher chunk key for a Qdrant hit. Order matters: Qdrant returns a UUID5
+        point id, so for points written before `embedding_id` was stored in the
+        payload the key must be rebuilt from doc_id + chunk_index, not taken from `id`.
+        """
+        payload = res.get("payload", {}) or {}
+        if payload.get("embedding_id"):
+            return str(payload["embedding_id"])
+        if payload.get("doc_id") is not None and payload.get("chunk_index") is not None:
+            return f"{payload['doc_id']}_chunk_{payload['chunk_index']}"
+        return str(res.get("id") or "")
 
     def get_stats(self) -> Dict:
         """
