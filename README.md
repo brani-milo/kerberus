@@ -335,6 +335,34 @@ All settings are read through one [`Settings`](src/config.py) object; Docker sec
 
 ---
 
+## Known limitations
+
+**Chainlit issues its login session after the password, before the second factor.** KERBERUS requires a
+password and a TOTP code, but Chainlit only knows the password step: it sets its login cookie as soon as the
+password is correct, and the TOTP check happens afterwards in the chat. Chainlit also serves its own endpoints
+for the thread sidebar, which check the cookie and thread ownership but not the TOTP step.
+
+What that means for someone who has a user's password but not their phone:
+
+| Chainlit endpoint | Effect | Status |
+|---|---|---|
+| List threads, open a thread | Neutral names and dates; no messages, no session data | Nothing readable |
+| Share a thread | The shared view receives no content either | Harmless |
+| **Rename a thread** | Changes the name | Open |
+| **Delete a thread** | Permanently removes the thread and its messages | Open |
+
+No conversation content can be read without the second factor, but conversations could be renamed or deleted.
+
+- *Interim fix:* a small FastAPI filter in front of those Chainlit endpoints that refuses requests from a login
+  that has not passed TOTP (the check is already recorded server-side in `src/auth/mfa_session.py`).
+- *Real fix:* a front end whose login completes **both** steps before any session exists. The REST API already
+  works this way (`POST /auth/login` with `totp_code`), so the missing piece is a UI built on it. See below.
+
+The project is a reference implementation and is not deployed anywhere; this is documented so it gets fixed,
+not exploited.
+
+---
+
 ## Looking for contributors
 
 I built KERBERUS alone, in the months between two jobs, to turn what I had learned about LLM systems into something
@@ -354,7 +382,9 @@ Things that would help most, roughly in order:
 - **Other cantons.** The Ticino scrapers and parsers are the template; Zurich, Bern, Vaud, Geneva each need their own.
 - **Case law quality.** Decision parsing (regeste, facts, reasoning) is heuristic; better section detection directly
   improves the answers.
-- **A React front end** next to Chainlit, on top of the existing REST API.
+- **A real front end** on top of the existing REST API (React or similar), with a login that completes password
+  **and** TOTP before a session exists. This closes the [known limitation](#known-limitations) above and would
+  be the single most valuable contribution.
 - **Another jurisdiction.** Germany, Austria and France have public legal databases; the pipeline is jurisdiction-agnostic.
 
 How to start: open an issue saying what you want to take, or pick something from the list above and send a pull
